@@ -1,0 +1,15 @@
+/target
+
+# AI tooling: never commit
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+AGENTS.md
+.mcp.json
+.serena/
+.superpowers/
+docs/superpowers/
+graphify-out/
+.caveman*
+.headroom/
+.worktrees/
