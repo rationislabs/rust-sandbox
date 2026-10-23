@@ -1,7 +1,15 @@
-[package]
-name = "rust-sandbox"
-version = "0.1.0"
+# One crate per project under projects/; they share a lock file and the target folder.
+[workspace]
+resolver = "3"
+members = ["projects/*"]
+
+[workspace.package]
 edition = "2024"
 license = "MIT OR Apache-2.0"
+publish = false
 
-[dependencies]
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
