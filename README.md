@@ -8,6 +8,7 @@ file, the target folder and the lint settings (`unsafe_code` forbidden, clippy p
 | [hello](projects/hello/) | The template: prints a greeting; copy it to start a project |
 | [todo](projects/todo/) | Command-line task list: due dates, tags, overdue first |
 | [finance](projects/finance/) | Terminal finance tracker: budgets vs actual, categories, trend (ratatui) |
+| [logline](projects/logline/) | Logs from several sources into one HTML timeline: collapsed repeats, incident bands |
 
 ```sh
 cargo run -p hello -- Rust   # Hello, Rust!

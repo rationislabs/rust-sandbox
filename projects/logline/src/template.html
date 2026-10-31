@@ -35,7 +35,8 @@ h1 { font-size: 16px; margin: 0 0 4px; font-weight: 650; }
 input[type=search] { padding: 5px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); min-width: 200px; }
 button { padding: 5px 11px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); cursor: pointer; }
 button:disabled { opacity: .5; cursor: default; }
-main { padding: 0 16px 48px; overflow-x: auto; }
+/* No overflow on main: sticky lane titles need the page itself to scroll. */
+main { padding: 0 16px 48px; }
 .lanes, .row { display: grid; grid-template-columns: 116px repeat(var(--n), minmax(220px, 1fr)); }
 .lanes { position: sticky; top: var(--head, 0px); z-index: 1; background: var(--bg); border-bottom: 1px solid var(--line); }
 .lanes div { padding: 8px 8px 6px; font-weight: 600; border-top: 3px solid var(--c, transparent); }
@@ -223,15 +224,17 @@ function render() {
 }
 
 function nextIncident() {
-  const top = document.querySelector("header").offsetHeight + 40;
+  const top = document.querySelector("header").offsetHeight + 40;  // header + lane titles
   const nodes = bands.map((i) => document.getElementById("incident-" + i));
   const next = nodes.find((n) => n.getBoundingClientRect().top > top + 1) || nodes[0];
-  if (next) next.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (next) next.scrollIntoView({ block: "start" });
 }
 
 summary();
 controls();
-document.documentElement.style.setProperty("--head", document.querySelector("header").offsetHeight + "px");
+// The lane titles stick right under the header, whatever height it wraps to.
+const header = document.querySelector("header");
+new ResizeObserver(() => document.documentElement.style.setProperty("--head", header.offsetHeight + "px")).observe(header);
 render();
 </script>
 </body>
