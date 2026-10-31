@@ -229,12 +229,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
 
 [[package]]
+name = "fastrand"
+version = "2.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
+
+[[package]]
 name = "finance"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "clap",
  "csv",
+ "fastrand",
  "rust_decimal",
  "serde",
  "toml",
