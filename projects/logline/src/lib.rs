@@ -6,10 +6,12 @@
 pub mod parse;
 pub mod source;
 pub mod time;
+pub mod timeline;
 
 pub use parse::{Format, ParseCtx, Parsed, parse_line};
 pub use source::{Input, Line, LineIter, TempDir, merge, open_inputs, open_reader_inputs};
 pub use time::{Zone, parse_duration, parse_shift, parse_timestamp};
+pub use timeline::{Entry, Incident, Options, Timeline, Truncation, build, template};
 
 use serde::Serialize;
 
