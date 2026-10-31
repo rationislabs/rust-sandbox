@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>logline timeline</title>
+<style>
+:root {
+  --bg: #fbfaf8; --panel: #ffffff; --text: #1d1d1f; --muted: #6b6b70; --line: #e6e3de;
+  --error: #c4312b; --warn: #b26a00; --info: #8a8a90; --band: #fdf0ee; --band-edge: #e8a29c;
+  --mark: #fff3b0;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141416; --panel: #1c1c1f; --text: #ececee; --muted: #9a9aa2; --line: #2c2c31;
+    --error: #ff6b61; --warn: #f0b04a; --info: #8d8d96; --band: #2a1a19; --band-edge: #8a3c36;
+    --mark: #5a4b00;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font-size: 14px; }
+header { position: sticky; top: 0; z-index: 2; background: var(--panel); border-bottom: 1px solid var(--line); padding: 12px 16px; }
+h1 { font-size: 16px; margin: 0 0 4px; font-weight: 650; }
+.summary { color: var(--muted); margin-bottom: 10px; }
+.summary b { color: var(--text); font-weight: 600; }
+.note { color: var(--warn); }
+.controls { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+.group { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border: 1px solid var(--line); border-radius: 999px; cursor: pointer; user-select: none; }
+.chip input { margin: 0; }
+.swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+input[type=search] { padding: 5px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); min-width: 200px; }
+button { padding: 5px 11px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; }
+main { padding: 0 16px 48px; overflow-x: auto; }
+.lanes, .row { display: grid; grid-template-columns: 116px repeat(var(--n), minmax(220px, 1fr)); }
+.lanes { position: sticky; top: var(--head, 0px); z-index: 1; background: var(--bg); border-bottom: 1px solid var(--line); }
+.lanes div { padding: 8px 8px 6px; font-weight: 600; border-top: 3px solid var(--c, transparent); }
+.row { content-visibility: auto; contain-intrinsic-size: auto 30px; }
+.row > div { padding: 3px 8px; border-left: 1px solid var(--line); min-width: 0; }
+.row > .time { border-left: 0; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; padding-top: 6px; }
+.row.in-incident > div { background: var(--band); }
+.band { margin-top: 10px; padding: 6px 10px; border-left: 4px solid var(--band-edge); background: var(--band); font-weight: 600; scroll-margin-top: 140px; }
+.day { margin-top: 14px; padding: 4px 0; color: var(--muted); font-size: 12px; font-weight: 600; border-bottom: 1px dashed var(--line); }
+.entry { border-left: 3px solid var(--c); padding: 3px 7px; border-radius: 4px; background: var(--panel); overflow-wrap: anywhere; }
+.entry.collapsible { cursor: pointer; }
+.lvl { font-weight: 700; margin-right: 6px; }
+.Error .lvl { color: var(--error); } .Warn .lvl { color: var(--warn); } .Info .lvl, .Debug .lvl { color: var(--info); }
+.Error .msg { color: var(--error); }
+.count { margin-left: 6px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+pre { margin: 6px 0 2px; padding: 6px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg); border-radius: 4px; }
+.gap { color: var(--muted); font-size: 12px; padding: 2px 0 2px 4px; }
+mark { background: var(--mark); color: inherit; }
+.empty { padding: 32px 0; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>logline timeline</h1>
+  <div class="summary" id="summary"></div>
+  <div class="controls">
+    <div class="group" id="sources"></div>
+    <div class="group" id="levels"></div>
+    <input type="search" id="search" placeholder="Search messages" aria-label="Search messages">
+    <button id="next" type="button">Next incident</button>
+  </div>
+</header>
+<main>
+  <div class="lanes" id="lanes"></div>
+  <div id="rows"></div>
+</main>
+<script>const DATA = /*DATA*/;</script>
+<script>
+"use strict";
+// Log text only ever reaches the page through textContent.
+const COLORS = ["#2f6fdb", "#2e9e6a", "#c2571a", "#8e44ad", "#c0397a", "#1b9aaa", "#7a7a20", "#5b6770"];
+const LEVELS = ["Error", "Warn", "Info", "Debug"];
+const color = (i) => COLORS[i % COLORS.length];
+const el = (tag, cls, text) => {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined) node.textContent = text;
+  return node;
+};
+const shown = { sources: new Set(DATA.sources.map((_, i) => i)), levels: new Set(LEVELS) };
+let query = "";
+
+function summary() {
+  const s = DATA.summary;
+  const box = document.getElementById("summary");
+  const part = (label, value) => { box.append(label); box.append(el("b", "", value)); box.append("  "); };
+  part("Span ", s.span);
+  part("· sources ", String(DATA.sources.length));
+  part("· lines ", String(s.lines));
+  part("· entries ", String(DATA.entries.length));
+  part("· incidents ", String(DATA.incidents.length));
+  part("· zone ", DATA.zone);
+  if (s.truncated) {
+    box.append(el("div", "note",
+      `Cut at ${s.truncated.cut}: ${s.truncated.dropped} more entries and ${s.truncated.incidents_after} incidents are not shown. Narrow the window with --from / --to.`));
+  }
+}
+
+function controls() {
+  const sources = document.getElementById("sources");
+  DATA.sources.forEach((name, i) => {
+    const chip = el("label", "chip");
+    const box = el("input"); box.type = "checkbox"; box.checked = true;
+    box.addEventListener("change", () => { box.checked ? shown.sources.add(i) : shown.sources.delete(i); render(); });
+    const sw = el("span", "swatch"); sw.style.background = color(i);
+    chip.append(box, sw, el("span", "", name));
+    sources.append(chip);
+  });
+  const counts = DATA.summary.counts;
+  const levels = document.getElementById("levels");
+  for (const level of LEVELS) {
+    if (!counts[level]) continue;
+    const chip = el("label", "chip " + level);
+    const box = el("input"); box.type = "checkbox"; box.checked = true;
+    box.addEventListener("change", () => { box.checked ? shown.levels.add(level) : shown.levels.delete(level); render(); });
+    chip.append(box, el("span", "lvl", level), el("span", "count", String(counts[level])));
+    levels.append(chip);
+  }
+  let timer;
+  document.getElementById("search").addEventListener("input", (e) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { query = e.target.value.toLowerCase(); render(); }, 150);
+  });
+  document.getElementById("next").addEventListener("click", nextIncident);
+  const lanes = document.getElementById("lanes");
+  document.documentElement.style.setProperty("--n", DATA.sources.length);
+  lanes.append(el("div", "", "Time"));
+  DATA.sources.forEach((name, i) => {
+    const lane = el("div", "", name);
+    lane.style.setProperty("--c", color(i));
+    lanes.append(lane);
+  });
+}
+
+function matches(e) {
+  if (!shown.sources.has(e.s) || !shown.levels.has(e.l)) return false;
+  if (!query) return true;
+  return e.m.toLowerCase().includes(query) || e.x.some((x) => x.toLowerCase().includes(query));
+}
+
+function highlight(node, text) {
+  if (!query) { node.textContent = text; return; }
+  const lower = text.toLowerCase();
+  let at = 0;
+  for (let i = lower.indexOf(query); i >= 0; i = lower.indexOf(query, at)) {
+    node.append(text.slice(at, i), el("mark", "", text.slice(i, i + query.length)));
+    at = i + query.length;
+  }
+  node.append(text.slice(at));
+}
+
+function entryCard(e) {
+  const card = el("div", "entry " + e.l);
+  card.style.setProperty("--c", color(e.s));
+  card.append(el("span", "lvl", e.l === "Error" ? "● ERROR" : e.l === "Warn" ? "▲ WARN" : e.l.toUpperCase()));
+  const msg = el("span", "msg");
+  highlight(msg, e.m);
+  card.append(msg);
+  if (e.n > 1) {
+    card.append(el("span", "count", `×${e.n} until ${e.e.slice(11, 19)}`));
+  }
+  if (e.n > 1 || e.x.some((x) => x.includes("\n"))) {
+    card.classList.add("collapsible");
+    card.title = "Click to show the raw lines";
+    card.addEventListener("click", () => {
+      const open = card.querySelector(".samples");
+      if (open) { open.remove(); return; }
+      const box = el("div", "samples");
+      const first = e.x.slice(0, 5), last = e.x.slice(5);
+      for (const x of first) box.append(el("pre", "", x));
+      if (e.n > e.x.length) box.append(el("div", "gap", `… ${e.n - e.x.length} more like these …`));
+      for (const x of last) box.append(el("pre", "", x));
+      card.append(box);
+    });
+  }
+  return card;
+}
+
+let bands = [];
+function render() {
+  const rows = document.getElementById("rows");
+  rows.replaceChildren();
+  bands = [];
+  let incident = 0, day = "", any = false;
+  const frag = document.createDocumentFragment();
+  for (const e of DATA.entries) {
+    while (incident < DATA.incidents.length && DATA.incidents[incident].ems < e.ms) incident++;
+    const inc = DATA.incidents[incident];
+    const inside = inc && e.ms >= inc.ms && e.ms <= inc.ems;
+    if (!matches(e)) continue;
+    any = true;
+    if (e.t.slice(0, 10) !== day) {
+      day = e.t.slice(0, 10);
+      frag.append(el("div", "day", day));
+    }
+    if (inside && !bands.includes(incident)) {
+      const names = inc.sources.map((s) => DATA.sources[s]).join(", ");
+      const band = el("div", "band", `Incident ${incident + 1} · ${inc.t.slice(11, 19)}–${inc.e.slice(11, 19)} · ${inc.lines} error/warn lines · ${names}`);
+      band.id = "incident-" + incident;
+      bands.push(incident);
+      frag.append(band);
+    }
+    const row = el("div", "row" + (inside ? " in-incident" : ""));
+    row.append(el("div", "time", e.t === "no time" ? e.t : e.t.slice(11)));
+    for (let lane = 0; lane < DATA.sources.length; lane++) {
+      const cell = el("div");
+      if (lane === e.s) cell.append(entryCard(e));
+      row.append(cell);
+    }
+    frag.append(row);
+  }
+  if (!any) frag.append(el("div", "empty", DATA.entries.length ? "No entries match the filters." : "No entries."));
+  rows.append(frag);
+  document.getElementById("next").disabled = bands.length === 0;
+}
+
+function nextIncident() {
+  const top = document.querySelector("header").offsetHeight + 40;
+  const nodes = bands.map((i) => document.getElementById("incident-" + i));
+  const next = nodes.find((n) => n.getBoundingClientRect().top > top + 1) || nodes[0];
+  if (next) next.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+summary();
+controls();
+document.documentElement.style.setProperty("--head", document.querySelector("header").offsetHeight + "px");
+render();
+</script>
+</body>
+</html>

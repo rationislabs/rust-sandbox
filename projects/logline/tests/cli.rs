@@ -163,3 +163,13 @@ fn demo_command() {
         text(&out.stdout)
     );
 }
+
+#[test]
+fn html_file_written() {
+    let page = tmp("html").join("t.html");
+    let out = logline(&[FIXTURES[0], FIXTURES[1], "-o", page.to_str().unwrap()]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    let html = fs::read_to_string(&page).unwrap();
+    assert!(html.starts_with("<!doctype html>"));
+    assert!(html.contains("upstream timeout"));
+}

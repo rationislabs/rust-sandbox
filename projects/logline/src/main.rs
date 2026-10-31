@@ -171,7 +171,7 @@ fn run(cli: &Cli) -> Result<()> {
     }
 
     let page = match cli.format {
-        OutputFormat::Html => "html: not yet\n".to_string(),
+        OutputFormat::Html => render::html(&timeline, &zone),
         OutputFormat::Text => {
             let color = cli.output.is_none() && std::io::stdout().is_terminal();
             render::text(&timeline, &zone, color)
