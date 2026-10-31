@@ -1,0 +1,3 @@
+2026-01-15 09:00:02.000 UTC [77] LOG:  database system is ready to accept connections
+2026-01-15 09:00:10.500 UTC [80] FATAL:  sorry, too many clients already
+2026-01-15 09:00:30.000 UTC [77] LOG:  checkpoint starting: time

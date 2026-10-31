@@ -3,11 +3,14 @@
 // The library only serves this crate's binary: no `#[must_use]` / `# Errors` boilerplate.
 #![allow(clippy::must_use_candidate, clippy::missing_errors_doc)]
 
+pub mod demo;
 pub mod parse;
+pub mod render;
 pub mod source;
 pub mod time;
 pub mod timeline;
 
+pub use demo::{DEMO_SEED, write_demo};
 pub use parse::{Format, ParseCtx, Parsed, parse_line};
 pub use source::{Input, Line, LineIter, TempDir, merge, open_inputs, open_reader_inputs};
 pub use time::{Zone, parse_duration, parse_shift, parse_timestamp};

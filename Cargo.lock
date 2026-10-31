@@ -870,6 +870,8 @@ dependencies = [
  "anyhow",
  "chrono",
  "chrono-tz",
+ "clap",
+ "fastrand",
  "regex",
  "serde",
  "serde_json",

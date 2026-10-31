@@ -1,0 +1,8 @@
+2026-01-15T09:00:00.120Z INFO server started on :8080
+2026-01-15T09:00:05.000Z WARN cache cold, warming
+2026-01-15T09:00:10.000Z ERROR upstream timeout after 3000 ms
+2026-01-15T09:00:11.000Z ERROR upstream timeout after 3012 ms
+2026-01-15T09:00:12.000Z ERROR upstream timeout after 2990 ms
+    at fetch (client.js:41)
+    at handler (app.js:12)
+2026-01-15T09:01:00.000Z INFO recovered
