@@ -6,6 +6,7 @@ file, the target folder and the lint settings (`unsafe_code` forbidden, clippy p
 | Project | What it does |
 |---|---|
 | [hello](projects/hello/) | The template: prints a greeting; copy it to start a project |
+| [todo](projects/todo/) | Command-line task list: due dates, tags, overdue first |
 
 ```sh
 cargo run -p hello -- Rust   # Hello, Rust!
