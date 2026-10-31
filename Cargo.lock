@@ -870,7 +870,9 @@ dependencies = [
  "anyhow",
  "chrono",
  "chrono-tz",
+ "regex",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

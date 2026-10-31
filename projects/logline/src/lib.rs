@@ -3,8 +3,10 @@
 // The library only serves this crate's binary: no `#[must_use]` / `# Errors` boilerplate.
 #![allow(clippy::must_use_candidate, clippy::missing_errors_doc)]
 
+pub mod parse;
 pub mod time;
 
+pub use parse::{Format, ParseCtx, Parsed, parse_line};
 pub use time::{Zone, parse_duration, parse_shift, parse_timestamp};
 
 use serde::Serialize;
