@@ -2,6 +2,8 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use finance::{DEFAULT_RULES, YearMonth, format_report, generate, load, months, summarize, to_csv};
 use std::path::PathBuf;
+
+mod ui;
 use std::process::ExitCode;
 
 /// Personal finance tracker on demo data: budgets vs actual, categories, monthly trend.
@@ -68,8 +70,8 @@ fn run(cli: Cli) -> Result<()> {
             print!("{}", format_report(&summarize(&txns, &rules, month)));
         }
         None => {
-            load(cli.csv.as_deref(), cli.rules.as_deref())?;
-            println!("app: not yet");
+            let (txns, rules) = load(cli.csv.as_deref(), cli.rules.as_deref())?;
+            ui::run(ui::App::new(txns, rules))?;
         }
     }
     Ok(())
