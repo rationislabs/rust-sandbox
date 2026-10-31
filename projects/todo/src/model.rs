@@ -1,8 +1,8 @@
 use anyhow::{Context, Result, bail};
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
-use std::fs;
-use std::io::ErrorKind;
+use std::fs::{self, File};
+use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -32,9 +32,9 @@ impl Default for TodoFile {
 }
 
 impl TodoFile {
-    pub fn add(&mut self, text: String, due: Option<NaiveDate>, tags: Vec<String>) -> u32 {
+    pub fn add(&mut self, text: String, due: Option<NaiveDate>, tags: Vec<String>) -> Result<u32> {
         let id = self.next_id;
-        self.next_id += 1;
+        self.next_id = id.checked_add(1).context("no task ids left")?;
         self.tasks.push(Task {
             id,
             text,
@@ -42,7 +42,7 @@ impl TodoFile {
             tags,
             done: false,
         });
-        id
+        Ok(id)
     }
 
     pub fn done(&mut self, id: u32) -> Result<()> {
@@ -84,7 +84,10 @@ pub fn save(path: &Path, file: &TodoFile) -> Result<()> {
     tmp.push(".tmp");
     let tmp = PathBuf::from(tmp);
     let json = serde_json::to_string_pretty(file)? + "\n";
-    fs::write(&tmp, json).with_context(|| format!("cannot write {}", tmp.display()))?;
+    let mut out = File::create(&tmp).with_context(|| format!("cannot write {}", tmp.display()))?;
+    out.write_all(json.as_bytes())
+        .and_then(|()| out.sync_all())
+        .with_context(|| format!("cannot write {}", tmp.display()))?;
     fs::rename(&tmp, path).with_context(|| format!("cannot replace {}", path.display()))
 }
 
@@ -113,8 +116,9 @@ mod tests {
             "Buy milk".into(),
             NaiveDate::from_ymd_opt(2026, 11, 2),
             vec!["home".into()],
-        );
-        file.add("Write spec".into(), None, vec![]);
+        )
+        .unwrap();
+        file.add("Write spec".into(), None, vec![]).unwrap();
         save(&path, &file).unwrap();
         assert_eq!(load(&path).unwrap(), file);
         assert!(
@@ -127,10 +131,10 @@ mod tests {
     #[test]
     fn ids_not_reused_after_remove() {
         let mut file = TodoFile::default();
-        assert_eq!(file.add("a".into(), None, vec![]), 1);
-        assert_eq!(file.add("b".into(), None, vec![]), 2);
+        assert_eq!(file.add("a".into(), None, vec![]).unwrap(), 1);
+        assert_eq!(file.add("b".into(), None, vec![]).unwrap(), 2);
         file.remove(2).unwrap();
-        assert_eq!(file.add("c".into(), None, vec![]), 3);
+        assert_eq!(file.add("c".into(), None, vec![]).unwrap(), 3);
     }
 
     #[test]
@@ -152,7 +156,7 @@ mod tests {
     #[test]
     fn done_twice_is_ok() {
         let mut file = TodoFile::default();
-        file.add("a".into(), None, vec![]);
+        file.add("a".into(), None, vec![]).unwrap();
         file.done(1).unwrap();
         file.done(1).unwrap();
         assert!(file.tasks[0].done);
@@ -164,7 +168,7 @@ mod tests {
         let path = dir.join("todo.json");
         fs::write(dir.join("todo.json.tmp"), "junk").unwrap();
         let mut file = TodoFile::default();
-        file.add("a".into(), None, vec![]);
+        file.add("a".into(), None, vec![]).unwrap();
         save(&path, &file).unwrap();
         assert_eq!(load(&path).unwrap(), file);
     }

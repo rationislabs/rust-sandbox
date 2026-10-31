@@ -5,6 +5,7 @@ use anyhow::{Context, Result, bail};
 use chrono::NaiveDate;
 use clap::{Parser, Subcommand};
 use std::ffi::OsString;
+use std::io::{ErrorKind, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -69,7 +70,7 @@ fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Add { text, due, tags } => {
             let due = due.map(|d| parse_date(&d)).transpose()?;
-            let id = file.add(text, due, tags);
+            let id = file.add(text, due, tags)?;
             model::save(&path, &file)?;
             println!("added {id}");
         }
@@ -77,11 +78,18 @@ fn run(cli: Cli) -> Result<()> {
             let due = due.map(|d| list::parse_due(&d)).transpose()?;
             let today = today()?;
             let tasks = list::select(&file.tasks, all, due, tag.as_deref(), today);
-            if tasks.is_empty() {
-                println!("No tasks.");
-            }
-            for task in tasks {
-                println!("{}", list::render(task, today));
+            let mut out = std::io::stdout().lock();
+            let printed = if tasks.is_empty() {
+                writeln!(out, "No tasks.")
+            } else {
+                tasks
+                    .iter()
+                    .try_for_each(|task| writeln!(out, "{}", list::render(task, today)))
+            };
+            // A reader that stops early (`todo list | head`) is not an error.
+            match printed {
+                Err(e) if e.kind() != ErrorKind::BrokenPipe => return Err(e.into()),
+                _ => {}
             }
         }
         Command::Done { id } => {

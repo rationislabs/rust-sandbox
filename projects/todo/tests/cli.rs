@@ -126,3 +126,30 @@ fn creates_missing_folder() {
     assert!(todo(&f, &["add", "x"]).status.success());
     assert!(f.exists());
 }
+
+#[test]
+fn exhausted_ids_error_not_panic() {
+    let f = tmp("exhausted").join("todo.json");
+    fs::write(&f, r#"{"version": 1, "next_id": 4294967295, "tasks": []}"#).unwrap();
+    let before = fs::read(&f).unwrap();
+    let out = todo(&f, &["add", "z"]);
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(fs::read(&f).unwrap(), before);
+}
+
+#[test]
+fn closed_pipe_is_not_a_panic() {
+    let f = tmp("pipe").join("todo.json");
+    todo(&f, &["add", "a"]);
+    let mut child = Command::new(env!("CARGO_BIN_EXE_todo"))
+        .arg("--file")
+        .arg(&f)
+        .arg("list")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    drop(child.stdout.take()); // like `todo list | head -0`
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+}
