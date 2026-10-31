@@ -62,8 +62,8 @@ string is escaped, so a line containing `<script>` shows as text.
 ## Throughput
 
 On the dev machine (AMD Ryzen 5 2500U, 4 cores / 8 threads, one thread used), a 1.06 GB demo
-file set (`logline demo --scale 1270`, 10.97 million lines) takes about 28 s with
-`--release --format text -o /dev/null`: **about 390,000 lines/s, 38 MB/s**, with a peak of 32 MB
+file set (`logline demo --scale 1270`, 10.97 million lines) takes about 29 s with
+`--release --format text -o /dev/null`: **about 380,000 lines/s, 37 MB/s**, with a peak of 29 MB
 of memory. Input is streamed; memory grows with the entries kept, not with the input size.
 
 ## Test
