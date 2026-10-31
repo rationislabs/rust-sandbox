@@ -1,0 +1,42 @@
+# Categories in order: the first one whose keyword appears in the payee wins.
+# Keywords match case-insensitively. Budgets are monthly, in EUR, written as strings.
+
+[[category]]
+name = "Income"
+income = true
+keywords = ["salary"]
+
+[[category]]
+name = "Rent"
+budget = "850.00"
+keywords = ["hausverwaltung"]
+
+[[category]]
+name = "Groceries"
+budget = "350.00"
+keywords = ["billa", "spar", "hofer", "lidl", "penny"]
+
+[[category]]
+name = "Utilities"
+budget = "120.00"
+keywords = ["wien energie", "magenta", "a1 telekom"]
+
+[[category]]
+name = "Transport"
+budget = "60.00"
+keywords = ["wiener linien", "öbb"]
+
+[[category]]
+name = "Eating out"
+budget = "150.00"
+keywords = ["restaurant", "café", "cafe", "mjam", "lieferando"]
+
+[[category]]
+name = "Subscriptions"
+budget = "40.00"
+keywords = ["netflix", "spotify", "fitinn"]
+
+[[category]]
+name = "Shopping"
+budget = "100.00"
+keywords = ["amazon", "ikea", "mediamarkt"]

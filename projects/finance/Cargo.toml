@@ -13,3 +13,5 @@ anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 csv = "1.4"
 rust_decimal = "1.43"
+serde = { version = "1", features = ["derive"] }
+toml = "1"
