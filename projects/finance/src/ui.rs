@@ -214,7 +214,9 @@ fn overview(frame: &mut Frame, app: &App, area: Rect) {
 /// filled width is computed in `Decimal`.
 fn budget_line(c: &CategoryLine, width: usize) -> Line<'static> {
     let over = c.remaining().is_sign_negative() && !c.remaining().is_zero();
-    let filled = if c.budget.is_zero() || over {
+    let filled = if c.actual <= Decimal::ZERO {
+        0
+    } else if c.budget.is_zero() || over {
         width
     } else {
         (c.actual * Decimal::from(width) / c.budget)
@@ -387,5 +389,20 @@ mod tests {
     #[test]
     fn too_small_40x10() {
         assert!(screen(&app(), 40, 10).contains("Terminal too small"));
+    }
+
+    #[test]
+    fn refunded_category_draws_empty_bar() {
+        let line = CategoryLine {
+            name: "Shopping".into(),
+            budget: Decimal::from(100),
+            actual: Decimal::new(-2499, 2),
+        };
+        let text: String = budget_line(&line, 10)
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert_eq!(text.matches('█').count(), 0, "{text}");
     }
 }

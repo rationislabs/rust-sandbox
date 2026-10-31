@@ -53,6 +53,9 @@ pub fn parse_rules(text: &str) -> Result<Rules> {
                 })
             })
             .transpose()?;
+        if budget.is_some_and(|b| b.abs() >= crate::transactions::MAX_AMOUNT) {
+            bail!("category {:?}: budget is too large", c.name);
+        }
         categories.push(Category {
             keywords: c.keywords.iter().map(|k| k.to_lowercase()).collect(),
             name: c.name,
@@ -144,5 +147,12 @@ mod tests {
         let err = parse_rules("[[category]]\nname = \"Y\"\nbudget = \"lots\"\nkeywords = []\n")
             .unwrap_err();
         assert!(format!("{err:#}").contains('Y'), "{err:#}");
+    }
+
+    #[test]
+    fn absurd_budget_rejected() {
+        let err = parse_rules("[[category]]\nname = \"Z\"\nbudget = \"79228162514264337593543950335\"\nkeywords = []\n")
+            .unwrap_err();
+        assert!(format!("{err:#}").contains('Z'), "{err:#}");
     }
 }

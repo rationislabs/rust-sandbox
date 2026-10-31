@@ -44,6 +44,8 @@ impl fmt::Display for YearMonth {
 }
 
 const HEADER: [&str; 3] = ["date", "payee", "amount"];
+/// Amounts and budgets stay below this, so no realistic number of rows can overflow a sum.
+pub const MAX_AMOUNT: Decimal = Decimal::from_parts(1_000_000_000, 0, 0, false, 0);
 
 /// Reads `date,payee,amount` rows; stops at the first bad row with `line <n>:` in the error.
 pub fn parse_csv(input: impl std::io::Read) -> Result<Vec<Transaction>> {
@@ -78,6 +80,9 @@ fn parse_row(record: &csv::StringRecord) -> Result<Transaction> {
         .map_err(|_| anyhow!("bad amount {amount:?}, expected a number like -12.50"))?;
     if parsed.scale() > 2 {
         bail!("amount {amount:?} has more than 2 decimals");
+    }
+    if parsed.abs() >= MAX_AMOUNT {
+        bail!("amount {amount:?} is too large (limit {MAX_AMOUNT})");
     }
     Ok(Transaction {
         date,
@@ -191,5 +196,13 @@ mod tests {
         );
         assert!("2026-13".parse::<YearMonth>().is_err());
         assert!("Sept".parse::<YearMonth>().is_err());
+    }
+
+    #[test]
+    fn rejects_absurd_amounts() {
+        let e = err(
+            "date,payee,amount\n2026-02-01,A,-1.00\n2026-02-02,B,-79228162514264337593543950335\n",
+        );
+        assert!(e.starts_with("line 3:"), "{e}");
     }
 }

@@ -55,6 +55,8 @@ pub fn summarize(txns: &[Transaction], rules: &Rules, month: YearMonth) -> Month
                 *sums.entry(c.name.as_str()).or_default() += t.amount;
                 spending_rows.push(*t);
             }
+            // Money in that no rule claims is income, not negative spending.
+            None if t.amount.is_sign_positive() => income += t.amount,
             None => {
                 uncategorized += t.amount;
                 spending_rows.push(*t);
@@ -235,5 +237,18 @@ mod tests {
                 )
             ]
         );
+    }
+
+    #[test]
+    fn positive_uncategorized_is_income() {
+        let txns = parse_csv(
+            "date,payee,amount\n2026-09-01,Gift from mom,200.00\n2026-09-02,BILLA,-10.00\n"
+                .as_bytes(),
+        )
+        .unwrap();
+        let s = summarize(&txns, &default_rules(), SEPT);
+        assert_eq!(s.income, dec("200.00"));
+        assert_eq!(s.spending, dec("10.00"));
+        assert_eq!(s.uncategorized, dec("0"));
     }
 }
