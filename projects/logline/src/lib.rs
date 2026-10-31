@@ -4,9 +4,11 @@
 #![allow(clippy::must_use_candidate, clippy::missing_errors_doc)]
 
 pub mod parse;
+pub mod source;
 pub mod time;
 
 pub use parse::{Format, ParseCtx, Parsed, parse_line};
+pub use source::{Input, Line, LineIter, TempDir, merge, open_inputs, open_reader_inputs};
 pub use time::{Zone, parse_duration, parse_shift, parse_timestamp};
 
 use serde::Serialize;
