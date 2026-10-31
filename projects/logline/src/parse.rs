@@ -95,6 +95,7 @@ fn json(line: &str, ctx: &ParseCtx) -> Option<Parsed> {
     let field = |keys: &[&str]| keys.iter().find_map(|k| map.get(*k));
     let time = field(&TIME_KEYS).and_then(|v| match v {
         Value::String(s) => parse_timestamp(s, &ctx.zone),
+        Value::Number(n) if n.is_f64() => float_epoch(n.as_f64()?),
         Value::Number(n) => parse_timestamp(&n.to_string(), &ctx.zone),
         _ => None,
     });
@@ -108,6 +109,16 @@ fn json(line: &str, ctx: &ParseCtx) -> Option<Parsed> {
         message: message.to_string(),
         format: Format::Json,
     })
+}
+
+/// zap and others write `"ts": 1793215816.123` (seconds with a fraction).
+fn float_epoch(f: f64) -> Option<DateTime<Utc>> {
+    let ms = if f >= 1e12 { f } else { f * 1000.0 };
+    if !(1e12..1e14).contains(&ms) {
+        return None;
+    }
+    #[allow(clippy::cast_possible_truncation)] // range checked above
+    DateTime::from_timestamp_millis(ms.round() as i64)
 }
 
 fn syslog5424(line: &str, ctx: &ParseCtx) -> Option<Parsed> {
@@ -377,5 +388,16 @@ mod tests {
             (p.format, p.level, p.message.as_str()),
             (Format::Unparsed, Level::Info, "%%% not a log %%%")
         );
+    }
+
+    #[test]
+    fn json_float_epoch() {
+        let p = parse_line(
+            r#"{"level":"error","ts":1793215816.123,"msg":"boom"}"#,
+            &ctx(),
+        );
+        assert_eq!(p.time, at("2026-10-28T19:30:16.123Z"));
+        let p = parse_line(r#"{"level":"info","ts":1793215816123,"msg":"ms"}"#, &ctx());
+        assert_eq!(p.time, at("2026-10-28T19:30:16.123Z"));
     }
 }

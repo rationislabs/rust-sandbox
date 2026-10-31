@@ -195,7 +195,7 @@ function render() {
   for (const e of DATA.entries) {
     while (incident < DATA.incidents.length && DATA.incidents[incident].ems < e.ms) incident++;
     const inc = DATA.incidents[incident];
-    const inside = inc && e.ms >= inc.ms && e.ms <= inc.ems;
+    const inside = inc && e.ms <= inc.ems && e.ee >= inc.ms;  // overlap, not just start
     if (!matches(e)) continue;
     any = true;
     if (e.t.slice(0, 10) !== day) {

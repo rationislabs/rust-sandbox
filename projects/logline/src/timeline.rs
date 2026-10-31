@@ -5,7 +5,7 @@ use anyhow::Result;
 use chrono::{DateTime, TimeDelta, Utc};
 use regex::Regex;
 use serde::Serialize;
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeSet, BinaryHeap, VecDeque};
 use std::sync::LazyLock;
 
 #[derive(Debug, Clone, Serialize)]
@@ -82,6 +82,35 @@ pub fn template(message: &str) -> String {
     })
 }
 
+/// Orders entries by (start, source) for the cap heap.
+struct ByStart(Entry);
+
+impl ByStart {
+    fn key(&self) -> (DateTime<Utc>, usize) {
+        (self.0.start, self.0.source)
+    }
+}
+
+impl PartialEq for ByStart {
+    fn eq(&self, other: &Self) -> bool {
+        self.key() == other.key()
+    }
+}
+
+impl Eq for ByStart {}
+
+impl PartialOrd for ByStart {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ByStart {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.key().cmp(&other.key())
+    }
+}
+
 struct Group {
     template: String,
     entry: Entry,
@@ -107,7 +136,7 @@ impl Group {
 
     fn add(&mut self, line: Line) {
         let e = &mut self.entry;
-        e.end = line.time;
+        e.end = e.end.max(line.time); // lines can be slightly out of order (nginx)
         e.level = e.level.max(line.level);
         e.count += 1;
         if e.samples.len() < 5 {
@@ -140,7 +169,7 @@ impl Incidents {
         }
         if let Some((inc, sources)) = &mut self.open {
             if line.time - inc.end <= opts.incident_window {
-                inc.end = line.time;
+                inc.end = inc.end.max(line.time);
                 inc.lines += 1;
                 sources.insert(line.source);
                 return;
@@ -185,17 +214,19 @@ pub fn build(
 ) -> Result<Timeline> {
     let mut groups: Vec<Option<Group>> = (0..sources.len()).map(|_| None).collect();
     let mut incidents = Incidents::default();
-    let mut entries = Vec::new();
     let mut dropped = 0u64;
     let mut cut: Option<DateTime<Utc>> = None;
     let mut lines_read = 0u64;
 
-    let mut keep = |entry: Entry, entries: &mut Vec<Entry>| {
-        if entries.len() < opts.cap {
-            entries.push(entry);
-        } else {
+    // The `cap` earliest entries by start; groups finish out of order, so a heap decides.
+    let mut kept: BinaryHeap<ByStart> = BinaryHeap::new();
+    let mut keep = |entry: Entry, kept: &mut BinaryHeap<ByStart>| {
+        kept.push(ByStart(entry));
+        if kept.len() > opts.cap
+            && let Some(ByStart(latest)) = kept.pop()
+        {
             dropped += 1;
-            cut = Some(cut.map_or(entry.start, |c| c.min(entry.start)));
+            cut = Some(cut.map_or(latest.start, |c| c.min(latest.start)));
         }
     };
 
@@ -213,17 +244,17 @@ pub fn build(
             }
             _ => {
                 if let Some(g) = slot.replace(Group::new(line)) {
-                    keep(g.finish(), &mut entries);
+                    keep(g.finish(), &mut kept);
                 }
             }
         }
     }
     for g in groups.into_iter().flatten() {
-        keep(g.finish(), &mut entries);
+        keep(g.finish(), &mut kept);
     }
     incidents.close();
 
-    entries.sort_by_key(|e| (e.start, e.source));
+    let mut entries: Vec<Entry> = kept.into_sorted_vec().into_iter().map(|e| e.0).collect();
     let truncated = cut.map(|cut| {
         // A clean time cut: nothing after `cut` stays, even what fit under the cap.
         let kept = entries.partition_point(|e| e.start < cut);
@@ -416,5 +447,40 @@ mod tests {
         assert_eq!(cut.dropped, 6);
         assert_eq!(cut.cut, base() + TimeDelta::seconds(4));
         assert_eq!(cut.incidents_after, 1);
+    }
+
+    #[test]
+    fn long_group_does_not_empty_capped_timeline() {
+        let opts = Options {
+            cap: 50,
+            ..Options::default()
+        };
+        let mut lines: Vec<Line> = (0..200)
+            .map(|i| line(0, i * 2, Level::Info, "heartbeat"))
+            .collect();
+        let distinct = (0..200).map(|i| {
+            line(
+                1,
+                i * 2 + 1,
+                Level::Info,
+                &format!("job {}", "x".repeat(usize::try_from(i).unwrap())),
+            )
+        });
+        lines.extend(distinct);
+        lines.sort_by_key(|l| l.time);
+        let t = run(lines, &opts);
+        assert!(t.entries.len() >= 45, "{} entries kept", t.entries.len());
+    }
+
+    #[test]
+    fn out_of_order_line_never_moves_end_back() {
+        let t = run(
+            (0..6)
+                .map(|i| line(0, if i == 5 { 1 } else { i * 10 }, Level::Error, "x"))
+                .collect(),
+            &Options::default(),
+        );
+        assert_eq!(t.entries[0].end, base() + TimeDelta::seconds(40));
+        assert_eq!(t.incidents[0].end, base() + TimeDelta::seconds(40));
     }
 }

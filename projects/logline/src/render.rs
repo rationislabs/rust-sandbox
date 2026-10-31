@@ -33,10 +33,8 @@ pub fn text(t: &Timeline, zone: &Zone, color: bool) -> String {
     let mut out = String::new();
     let mut next_incident = 0;
     for e in &t.entries {
-        while let Some(inc) = t
-            .incidents
-            .get(next_incident)
-            .filter(|i| e.start >= i.start)
+        while let Some(inc) = t.incidents.get(next_incident).filter(|i| e.end >= i.start)
+        // overlap, so a long group inside one counts
         {
             next_incident += 1;
             let sources: Vec<&str> = inc.sources.iter().map(|&s| t.sources[s].as_str()).collect();
@@ -119,6 +117,7 @@ pub fn html(t: &Timeline, zone: &Zone) -> String {
                 "t": when(e.start, zone, TIME_FMT),
                 "e": when(e.end, zone, TIME_FMT),
                 "ms": e.start.timestamp_millis(),
+                "ee": e.end.timestamp_millis(),
                 "l": e.level,
                 "m": e.message,
                 "n": e.count,
@@ -289,5 +288,26 @@ mod tests {
         assert_eq!(data["incidents"].as_array().unwrap().len(), 1);
         assert_eq!(data["sources"][1], "postgres");
         assert_eq!(data["summary"]["truncated"]["dropped"], 7);
+    }
+
+    #[test]
+    fn incident_inside_a_collapsed_group_is_marked() {
+        let mut t = timeline();
+        // The group starts before the incident and runs through it.
+        t.entries[1].start = at("2026-10-28T10:10:00Z");
+        t.entries[1].end = at("2026-10-28T10:20:00Z");
+        t.entries.push(Entry {
+            start: at("2026-10-28T10:40:00Z"),
+            ..t.entries[0].clone()
+        });
+        let out = text(&t, &"UTC".parse().unwrap(), false);
+        let marker = out.find("--- incident 1").expect("marker");
+        let group = out.find("db pool exhausted").unwrap();
+        assert!(marker < group, "{out}");
+        let page = html(&t, &"UTC".parse().unwrap());
+        assert!(
+            page.contains("\"ee\":"),
+            "entries carry their end for overlap tests"
+        );
     }
 }

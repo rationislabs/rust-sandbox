@@ -85,13 +85,14 @@ pub fn parse_duration(s: &str) -> Result<TimeDelta> {
     let n: i64 = number
         .parse()
         .with_context(|| format!("bad duration {s:?} (use e.g. 90s, -1500ms, 5m, 1h)"))?;
-    match unit {
-        "ms" => Ok(TimeDelta::milliseconds(n)),
-        "s" => Ok(TimeDelta::seconds(n)),
-        "m" => Ok(TimeDelta::minutes(n)),
-        "h" => Ok(TimeDelta::hours(n)),
+    let delta = match unit {
+        "ms" => TimeDelta::try_milliseconds(n),
+        "s" => TimeDelta::try_seconds(n),
+        "m" => TimeDelta::try_minutes(n),
+        "h" => TimeDelta::try_hours(n),
         _ => bail!("bad duration {s:?}: the unit must be ms, s, m or h"),
-    }
+    };
+    delta.with_context(|| format!("duration {s:?} is out of range"))
 }
 
 /// `NAME=DURATION`, for `--shift db=+2s`.
@@ -233,5 +234,11 @@ mod tests {
             ("db".to_string(), TimeDelta::seconds(2))
         );
         assert!(parse_shift("db").is_err());
+    }
+
+    #[test]
+    fn huge_durations_error_not_panic() {
+        assert!(parse_duration("9999999999999999s").is_err());
+        assert!(parse_duration("9999999999999999h").is_err());
     }
 }

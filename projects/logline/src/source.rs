@@ -137,10 +137,17 @@ impl Iterator for LineIter {
                         self.leading.clear();
                     }
                     self.seen_time = true;
+                    let Some(time) = time.checked_add_signed(self.shift) else {
+                        self.done = true;
+                        return Some(Err(anyhow::anyhow!(
+                            "--shift moves {} out of the time range",
+                            self.name
+                        )));
+                    };
                     let new = Line {
                         source: self.source,
                         seq: self.next_seq(),
-                        time: time + self.shift,
+                        time,
                         level,
                         message,
                         raw,
@@ -190,6 +197,25 @@ impl Drop for TempDir {
 static DOCKER_LINE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^([\w.-]+)\s*\|\s(\d{4}-\d\d-\d\dT\S+Z)\s?(.*)$").expect("valid regex")
 });
+
+/// A new, private (0700) folder with an unpredictable name; never an existing one.
+fn private_temp_dir() -> Result<PathBuf> {
+    use std::os::unix::fs::DirBuilderExt;
+    let mut last = None;
+    for _ in 0..8 {
+        let dir = std::env::temp_dir().join(format!(
+            "logline-{}-{:016x}",
+            std::process::id(),
+            fastrand::u64(..)
+        ));
+        match std::fs::DirBuilder::new().mode(0o700).create(&dir) {
+            Ok(()) => return Ok(dir),
+            Err(e) => last = Some(e),
+        }
+    }
+    Err(last.map_or_else(|| anyhow::anyhow!("no temp dir"), anyhow::Error::from))
+        .context("cannot create a temp folder")
+}
 
 /// Files by path; `-` is stdin.
 pub fn open_inputs(paths: &[PathBuf]) -> Result<(Vec<Input>, Option<TempDir>)> {
@@ -244,8 +270,7 @@ pub fn open_reader_inputs(mut reader: Box<dyn BufRead>) -> Result<(Vec<Input>, O
 }
 
 fn demux(mut reader: Box<dyn BufRead>) -> Result<(Vec<Input>, Option<TempDir>)> {
-    let dir = std::env::temp_dir().join(format!("logline-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).with_context(|| format!("cannot create {}", dir.display()))?;
+    let dir = private_temp_dir()?;
     let tmp = TempDir(dir.clone());
     let mut names: Vec<String> = Vec::new();
     let mut writers: Vec<BufWriter<File>> = Vec::new();
@@ -466,5 +491,21 @@ mod tests {
             .unwrap();
         let text = format!("{err:#}"); // how main prints it
         assert!(text.starts_with("does-not-exist.log: "), "{text}");
+    }
+
+    #[test]
+    fn demux_dir_is_private_and_unique() {
+        use std::os::unix::fs::PermissionsExt;
+        let text = "api-1  | 2026-10-28T10:00:01Z hi\n";
+        let (_a, dir_a) =
+            open_reader_inputs(Box::new(Cursor::new(text.as_bytes().to_vec()))).unwrap();
+        let (_b, dir_b) =
+            open_reader_inputs(Box::new(Cursor::new(text.as_bytes().to_vec()))).unwrap();
+        let (a, b) = (dir_a.unwrap(), dir_b.unwrap());
+        assert_ne!(a.0, b.0);
+        assert_eq!(
+            std::fs::metadata(&a.0).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
     }
 }
