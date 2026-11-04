@@ -82,20 +82,20 @@ pub fn generate(seed: u64) -> Vec<Transaction> {
         }
         if shop_days.contains(&date.weekday().num_days_from_monday()) {
             let shop = GROCERS[g.rng.usize(..GROCERS.len())];
-            g.spend(date, shop, 5, 38);
+            g.spend(date, shop, 5, 32);
         }
         if g.chance(0.17) {
             let place = EATING_OUT[g.rng.usize(..EATING_OUT.len())];
-            g.spend(date, place, 9, 42);
+            g.spend(date, place, 8, 30);
         }
         if g.chance(0.05) {
             g.spend(date, "Amazon EU", 11, 48);
         }
         // One-offs, fixed so the story is the same every run.
         match (month, date.day()) {
-            (6, 14) => g.spend(date, "MediaMarkt Wien Mitte", 79, 80),
+            (6, 14) => g.spend(date, "MediaMarkt Wien Mitte", 69, 70),
             (7, 3) => g.push(date, "Amazon EU Refund", 2_499),
-            (7, 18) | (9, 26) => g.spend(date, "ÖBB Ticket Wien-Salzburg", 19, 31),
+            (7, 18) | (9, 26) => g.spend(date, "ÖBB Ticket Wien-Salzburg", 19, 29),
             // The over-budget month: a new shelf in August.
             (8, 22) => g.push(date, "IKEA Wien Vösendorf", -28_990),
             (9, 9) => g.spend(date, "Thalia Buchhandlung", 14, 38),
@@ -137,16 +137,20 @@ mod tests {
     }
 
     #[test]
-    fn some_month_over_budget() {
+    fn only_august_over_budget() {
         let txns = generate(DEMO_SEED);
         let rules = default_rules();
-        let over = months(&txns).into_iter().any(|m| {
-            summarize(&txns, &rules, m)
-                .categories
-                .iter()
-                .any(|c| c.remaining().is_sign_negative())
-        });
-        assert!(over);
+        let over: Vec<String> = months(&txns)
+            .into_iter()
+            .filter(|&m| {
+                summarize(&txns, &rules, m)
+                    .categories
+                    .iter()
+                    .any(|c| c.remaining().is_sign_negative() && !c.remaining().is_zero())
+            })
+            .map(|m| m.to_string())
+            .collect();
+        assert_eq!(over, ["2026-08"]);
     }
 
     #[test]
