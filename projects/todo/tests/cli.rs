@@ -135,6 +135,14 @@ fn newline_in_text_stays_on_one_line() {
 }
 
 #[test]
+fn usage_error_exits_1() {
+    let f = tmp("usage").join("todo.json");
+    assert_eq!(todo(&f, &["done", "abc"]).status.code(), Some(1));
+    assert_eq!(todo(&f, &["frobnicate"]).status.code(), Some(1));
+    assert_eq!(todo(&f, &["--help"]).status.code(), Some(0));
+}
+
+#[test]
 fn creates_missing_folder() {
     let f = tmp("folder").join("new").join("dir").join("todo.json");
     assert!(todo(&f, &["add", "x"]).status.success());

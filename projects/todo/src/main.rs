@@ -50,7 +50,19 @@ enum Command {
 }
 
 fn main() -> ExitCode {
-    match run(Cli::parse()) {
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(e) => {
+            let _ = e.print();
+            // clap exits 2 on a usage error; every failure here is 1.
+            return if e.use_stderr() {
+                ExitCode::FAILURE
+            } else {
+                ExitCode::SUCCESS
+            };
+        }
+    };
+    match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("error: {e:#}");
