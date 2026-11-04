@@ -76,19 +76,30 @@ fn parse_row(record: &csv::StringRecord) -> Result<Transaction> {
     };
     let date = NaiveDate::parse_from_str(date, "%Y-%m-%d")
         .map_err(|_| anyhow!("bad date {date:?}, expected YYYY-MM-DD"))?;
-    let parsed = Decimal::from_str(amount)
-        .map_err(|_| anyhow!("bad amount {amount:?}, expected a number like -12.50"))?;
+    Ok(Transaction {
+        date,
+        payee: payee.to_string(),
+        amount: parse_amount(amount)?,
+    })
+}
+
+/// A plain decimal like `-12.50`: optional sign, digits, at most 2 decimals, below
+/// [`MAX_AMOUNT`]. `Decimal::from_str` alone would also take `1e3` and `1_000`.
+pub(crate) fn parse_amount(amount: &str) -> Result<Decimal> {
+    let digits = amount.strip_prefix(['-', '+']).unwrap_or(amount);
+    let (int, frac) = digits.split_once('.').unwrap_or((digits, ""));
+    let plain = |s: &str| s.bytes().all(|b| b.is_ascii_digit());
+    let parsed = (!int.is_empty() && plain(int) && plain(frac))
+        .then_some(amount)
+        .and_then(|a| Decimal::from_str(a).ok())
+        .ok_or_else(|| anyhow!("bad amount {amount:?}, expected a number like -12.50"))?;
     if parsed.scale() > 2 {
         bail!("amount {amount:?} has more than 2 decimals");
     }
     if parsed.abs() >= MAX_AMOUNT {
         bail!("amount {amount:?} is too large (limit {MAX_AMOUNT})");
     }
-    Ok(Transaction {
-        date,
-        payee: payee.to_string(),
-        amount: parsed,
-    })
+    Ok(parsed)
 }
 
 pub fn to_csv(txns: &[Transaction]) -> String {
@@ -196,6 +207,16 @@ mod tests {
         );
         assert!("2026-13".parse::<YearMonth>().is_err());
         assert!("Sept".parse::<YearMonth>().is_err());
+    }
+
+    #[test]
+    fn rejects_exponent_and_underscores() {
+        for amount in ["-1e3", "-1_000.00", "1E2", "+-1", ".5", " -1.00"] {
+            let e = err(&format!("date,payee,amount\n2026-02-01,A,{amount}\n"));
+            assert!(e.starts_with("line 2:"), "{amount}: {e}");
+        }
+        let input = "date,payee,amount\n2026-02-01,A,+12.5\n2026-02-01,B,7.\n";
+        assert_eq!(parse_csv(input.as_bytes()).unwrap().len(), 2);
     }
 
     #[test]
