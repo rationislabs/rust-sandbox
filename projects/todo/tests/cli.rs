@@ -117,7 +117,12 @@ fn unicode_round_trip() {
 fn repeated_tags() {
     let f = tmp("tags").join("todo.json");
     todo(&f, &["add", "x", "--tag", "a", "--tag", "b"]);
-    assert!(stdout(&todo(&f, &["list", "--tag", "b"])).contains(" x"));
+    todo(&f, &["add", "y", "--tag", "a"]);
+    let b = stdout(&todo(&f, &["list", "--tag", "b"]));
+    assert_eq!(b.lines().count(), 1, "{b}");
+    assert!(b.contains(" x #a #b"), "{b}");
+    let a = stdout(&todo(&f, &["list", "--tag", "a"]));
+    assert_eq!(a.lines().count(), 2, "{a}");
 }
 
 #[test]
