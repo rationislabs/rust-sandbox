@@ -2,7 +2,6 @@ use anyhow::{Context, Result, bail};
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use std::collections::HashSet;
-use std::str::FromStr;
 
 pub const DEFAULT_RULES: &str = include_str!("default_rules.toml");
 
@@ -47,14 +46,17 @@ pub fn parse_rules(text: &str) -> Result<Rules> {
         }
         let budget = c
             .budget
-            .map(|b| {
-                Decimal::from_str(&b).with_context(|| {
-                    format!("category {:?}: budget {b:?} is not a decimal", c.name)
-                })
-            })
-            .transpose()?;
-        if budget.is_some_and(|b| b.abs() >= crate::transactions::MAX_AMOUNT) {
-            bail!("category {:?}: budget is too large", c.name);
+            .map(|b| crate::transactions::parse_amount(&b))
+            .transpose()
+            .with_context(|| format!("category {:?}: budget", c.name))?;
+        if budget.is_some_and(|b| b < Decimal::ZERO) {
+            bail!("category {:?}: budget is negative", c.name);
+        }
+        if c.keywords.iter().any(String::is_empty) {
+            bail!(
+                "category {:?}: an empty keyword would match every payee",
+                c.name
+            );
         }
         categories.push(Category {
             keywords: c.keywords.iter().map(|k| k.to_lowercase()).collect(),
@@ -85,6 +87,7 @@ impl Rules {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
 
     #[test]
     fn default_rules_parse() {
@@ -147,6 +150,23 @@ mod tests {
         let err = parse_rules("[[category]]\nname = \"Y\"\nbudget = \"lots\"\nkeywords = []\n")
             .unwrap_err();
         assert!(format!("{err:#}").contains('Y'), "{err:#}");
+    }
+
+    #[test]
+    fn negative_or_fine_grained_budget_rejected() {
+        for budget in ["-50.00", "12.345", "1e3"] {
+            let text =
+                format!("[[category]]\nname = \"W\"\nbudget = \"{budget}\"\nkeywords = []\n");
+            let err = parse_rules(&text).unwrap_err();
+            assert!(format!("{err:#}").contains('W'), "{budget}: {err:#}");
+        }
+    }
+
+    #[test]
+    fn empty_keyword_rejected() {
+        let err =
+            parse_rules("[[category]]\nname = \"V\"\nkeywords = [\"billa\", \"\"]\n").unwrap_err();
+        assert!(format!("{err:#}").contains('V'), "{err:#}");
     }
 
     #[test]
