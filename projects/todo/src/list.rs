@@ -57,11 +57,16 @@ pub fn render(task: &Task, today: NaiveDate) -> String {
         Some(d) => d.to_string(),
         None => String::new(),
     };
-    let mut line = format!("{:>3} {mark} {due:<18} {}", task.id, task.text);
+    let mut line = format!("{:>3} {mark} {due:<18} {}", task.id, one_line(&task.text));
     for tag in &task.tags {
-        let _ = write!(line, " #{tag}");
+        let _ = write!(line, " #{}", one_line(tag));
     }
     line
+}
+
+/// A newline or other control character in the text would break the one-line-per-task layout.
+fn one_line(s: &str) -> String {
+    s.replace(char::is_control, " ")
 }
 
 #[cfg(test)]

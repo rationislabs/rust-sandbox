@@ -126,6 +126,15 @@ fn repeated_tags() {
 }
 
 #[test]
+fn newline_in_text_stays_on_one_line() {
+    let f = tmp("newline").join("todo.json");
+    todo(&f, &["add", "first\nsecond", "--tag", "t\nu"]);
+    let list = stdout(&todo(&f, &["list"]));
+    assert_eq!(list.lines().count(), 1, "{list}");
+    assert!(list.contains("first second #t u"), "{list}");
+}
+
+#[test]
 fn creates_missing_folder() {
     let f = tmp("folder").join("new").join("dir").join("todo.json");
     assert!(todo(&f, &["add", "x"]).status.success());
