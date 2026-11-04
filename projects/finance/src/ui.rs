@@ -83,8 +83,10 @@ impl App {
                 self.month += 1;
                 self.scroll = 0;
             }
-            KeyCode::Up => self.scroll = self.scroll.saturating_sub(1),
-            KeyCode::Down => {
+            KeyCode::Up if self.view == View::Transactions => {
+                self.scroll = self.scroll.saturating_sub(1);
+            }
+            KeyCode::Down if self.view == View::Transactions => {
                 let last = self.month_rows().len().saturating_sub(1);
                 self.scroll = (self.scroll + 1).min(last);
             }
@@ -162,7 +164,7 @@ fn overview(frame: &mut Frame, app: &App, area: Rect) {
     let rows = u16::try_from(s.categories.len()).unwrap_or(u16::MAX);
     let [totals, budgets, top] = Layout::vertical([
         Constraint::Length(3),
-        Constraint::Length(rows + 2),
+        Constraint::Length(rows.saturating_add(2)),
         Constraint::Min(0),
     ])
     .areas(area);
@@ -269,9 +271,23 @@ fn transactions(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn trend(frame: &mut Frame, app: &App, area: Rect) {
-    let bars: Vec<Bar> = monthly_spending(&app.txns, &app.rules)
-        .into_iter()
-        .map(|(m, spent)| {
+    let all = monthly_spending(&app.txns, &app.rules);
+    // Bars 9 wide, 2 apart: show the months that fit, always including the current one.
+    let fit = (usize::from(area.width.saturating_sub(2)) + 2) / 11;
+    let end = (app.month + 1).max(fit).min(all.len());
+    let shown = &all[end.saturating_sub(fit.max(1))..end];
+    let title = if shown.len() < all.len() {
+        format!(
+            " Spending per month ({} of {}, ←/→ for more) ",
+            shown.len(),
+            all.len()
+        )
+    } else {
+        " Spending per month ".to_string()
+    };
+    let bars: Vec<Bar> = shown
+        .iter()
+        .map(|&(m, spent)| {
             // Bar height in whole euros (display only); the label carries the exact amount.
             Bar::new(spent.trunc().to_u64().unwrap_or(0))
                 .label(m.to_string())
@@ -286,7 +302,7 @@ fn trend(frame: &mut Frame, app: &App, area: Rect) {
     let chart = BarChart::new(bars)
         .bar_width(9)
         .bar_gap(2)
-        .block(Block::bordered().title(" Spending per month "));
+        .block(Block::bordered().title(title));
     frame.render_widget(chart, area);
 }
 
@@ -389,6 +405,56 @@ mod tests {
     #[test]
     fn too_small_40x10() {
         assert!(screen(&app(), 40, 10).contains("Terminal too small"));
+    }
+
+    #[test]
+    fn down_scrolls_only_the_transactions_view() {
+        let mut app = app();
+        app.on_key(KeyCode::Down);
+        assert_eq!(app.scroll, 0);
+        app.on_key(KeyCode::Tab);
+        app.on_key(KeyCode::Down);
+        assert_eq!(app.scroll, 1);
+    }
+
+    #[test]
+    fn trend_keeps_the_current_month_in_view() {
+        let txns: Vec<Transaction> = (0..12)
+            .map(|i| Transaction {
+                date: chrono::NaiveDate::from_ymd_opt(2025, 11, 1)
+                    .unwrap()
+                    .checked_add_months(chrono::Months::new(i))
+                    .unwrap(),
+                payee: "BILLA".into(),
+                amount: Decimal::new(-1000, 2),
+            })
+            .collect();
+        let mut app = App::new(txns, default_rules());
+        app.on_key(KeyCode::Tab);
+        app.on_key(KeyCode::Tab);
+        // Skip the title line: it names the current month too.
+        let chart = |app: &App| screen(app, 80, 24).split_once('\n').unwrap().1.to_string();
+        let text = chart(&app);
+        assert!(text.contains("2026-10"), "{text}");
+        for _ in 0..11 {
+            app.on_key(KeyCode::Left);
+        }
+        let text = chart(&app);
+        assert!(text.contains("2025-11"), "{text}");
+    }
+
+    #[test]
+    fn many_budgeted_categories_do_not_overflow() {
+        let categories = (0..65_534)
+            .map(|i| finance::Category {
+                name: format!("c{i}"),
+                budget: Some(Decimal::ONE),
+                income: false,
+                keywords: vec![format!("payee{i}")],
+            })
+            .collect();
+        let app = App::new(generate(DEMO_SEED), Rules { categories });
+        screen(&app, 80, 24);
     }
 
     #[test]
