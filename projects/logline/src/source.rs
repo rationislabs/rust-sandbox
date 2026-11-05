@@ -242,23 +242,27 @@ pub fn open_inputs(paths: &[PathBuf]) -> Result<(Vec<Input>, Option<TempDir>)> {
     Ok((inputs, tmp))
 }
 
-/// Stdin as one source, or split per service when it looks like `docker compose logs -t`.
+/// Stdin as one source, or split per service when one of the first 10 non-blank lines looks
+/// like `docker compose logs -t` (compose can print a preamble such as "Attaching to …").
 pub fn open_reader_inputs(mut reader: Box<dyn BufRead>) -> Result<(Vec<Input>, Option<TempDir>)> {
     let mut head = Vec::new();
     let mut line = Vec::new();
-    loop {
+    let mut docker = false;
+    let mut seen = 0;
+    while seen < 10 && !docker {
         line.clear();
         if reader.read_until(b'\n', &mut line)? == 0 {
             break;
         }
         head.extend_from_slice(&line);
-        if !String::from_utf8_lossy(&line).trim().is_empty() {
-            break;
+        let text = String::from_utf8_lossy(&line);
+        if !text.trim().is_empty() {
+            seen += 1;
+            docker = DOCKER_LINE.is_match(text.trim_end());
         }
     }
-    let first = String::from_utf8_lossy(&line).trim_end().to_string();
     let rest: Box<dyn BufRead> = Box::new(Cursor::new(head).chain(reader));
-    if !DOCKER_LINE.is_match(&first) {
+    if !docker {
         let input = Input {
             name: "stdin".into(),
             reader: rest,
@@ -471,6 +475,15 @@ mod tests {
         assert_eq!(lines[1].level, Level::Error);
         assert_eq!(lines[1].message, "x");
         assert_eq!(lines[1].time, at("2026-10-28T10:00:01Z"));
+    }
+
+    #[test]
+    fn docker_detected_past_a_preamble() {
+        let text = "Attaching to api-1, db-1\napi-1  | 2026-10-28T10:00:01Z ok\ndb-1   | 2026-10-28T10:00:00Z LOG: ok\n";
+        let (inputs, _tmp) =
+            open_reader_inputs(Box::new(Cursor::new(text.as_bytes().to_vec()))).unwrap();
+        let names: Vec<&str> = inputs.iter().map(|i| i.name.as_str()).collect();
+        assert_eq!(names, ["stdin", "api-1", "db-1"]);
     }
 
     #[test]
