@@ -1,8 +1,8 @@
 //! Streams of lines per source: continuation lines attached, docker stdin split, k-way merge.
 
-use crate::{Level, ParseCtx, parse_line};
+use crate::{Format, Level, ParseCtx, parse_line};
 use anyhow::{Context, Result};
-use chrono::{DateTime, TimeDelta, Utc};
+use chrono::{DateTime, Datelike, TimeDelta, Utc};
 use regex::Regex;
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
@@ -43,6 +43,9 @@ pub struct LineIter {
     leading: Vec<String>,
     seen_time: bool,
     done: bool,
+    /// RFC 3164 syslog: years past `ctx.year`, and the month of the last such line.
+    syslog_years: i32,
+    syslog_month: u32,
 }
 
 impl LineIter {
@@ -67,6 +70,8 @@ impl LineIter {
             leading: Vec::new(),
             seen_time: false,
             done: false,
+            syslog_years: 0,
+            syslog_month: 0,
         }
     }
 
@@ -90,7 +95,7 @@ impl LineIter {
     }
 
     /// Time, level and message; `None` time = attach to the line before.
-    fn parse(&self, line: &str) -> (Option<DateTime<Utc>>, Level, String) {
+    fn parse(&mut self, line: &str) -> (Option<DateTime<Utc>>, Level, String) {
         if self.docker
             && let Some((stamp, rest)) = line.split_once(' ')
             && let Ok(time) = DateTime::parse_from_rfc3339(stamp)
@@ -103,7 +108,23 @@ impl LineIter {
             return (Some(time.with_timezone(&Utc)), parsed.level, parsed.message);
         }
         let parsed = parse_line(line, &self.ctx);
-        (parsed.time, parsed.level, parsed.message)
+        let time = match parsed.time {
+            Some(t) if parsed.format == Format::Syslog3164 => Some(self.syslog_year(t)),
+            t => t,
+        };
+        (time, parsed.level, parsed.message)
+    }
+
+    /// RFC 3164 lines carry no year: a month well before the last one (December, then January)
+    /// starts the next year.
+    // ponytail: Feb 29 moved into a year without one keeps the parsed year.
+    fn syslog_year(&mut self, time: DateTime<Utc>) -> DateTime<Utc> {
+        if self.syslog_month > time.month() + 6 {
+            self.syslog_years += 1;
+        }
+        self.syslog_month = time.month();
+        time.with_year(time.year() + self.syslog_years)
+            .unwrap_or(time)
     }
 
     fn next_seq(&mut self) -> u64 {
@@ -383,6 +404,17 @@ mod tests {
 
     fn at(s: &str) -> DateTime<Utc> {
         DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
+    }
+
+    #[test]
+    fn syslog_crosses_new_year() {
+        let got = lines_of(
+            b"<13>Dec 31 23:59:58 host app: a\n<13>Jan  1 00:00:01 host app: b\n<13>Mar  3 10:00:00 host app: c\n",
+            TimeDelta::zero(),
+        );
+        assert_eq!(got[0].time, at("2026-12-31T23:59:58Z"));
+        assert_eq!(got[1].time, at("2027-01-01T00:00:01Z"));
+        assert_eq!(got[2].time, at("2027-03-03T10:00:00Z"));
     }
 
     #[test]
