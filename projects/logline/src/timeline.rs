@@ -232,7 +232,8 @@ pub fn build(
 
     for line in lines {
         let line = line?;
-        lines_read += 1;
+        // Physical lines: a record carries its continuation lines in `raw`.
+        lines_read += 1 + line.raw.bytes().filter(|&b| b == b'\n').count() as u64;
         incidents.see(&line, opts);
         let slot = &mut groups[line.source];
         match slot {
@@ -319,6 +320,17 @@ mod tests {
             template("addr 0x1f took 22 ms")
         );
         assert_ne!(template("conn refused"), template("conn accepted"));
+    }
+
+    #[test]
+    fn lines_read_counts_continuation_lines() {
+        let mut first = line(0, 1, Level::Error, "boom");
+        first.raw = "boom\n  at foo\n  at bar".to_string();
+        let t = run(
+            vec![first, line(0, 2, Level::Info, "ok")],
+            &Options::default(),
+        );
+        assert_eq!(t.lines_read, 4);
     }
 
     #[test]
