@@ -46,6 +46,10 @@ A line without a timestamp (a stack trace, wrapped output) belongs to the line b
 line that matches nothing is kept as text, never dropped. Log text is data, never markup: every
 string is escaped, so a line containing `<script>` shows as text.
 
+Gzipped files (`app.log.gz`, or any file or stdin that starts with the gzip magic bytes) are
+decompressed as they are read; the lane is named without the `.gz`. Repeats are compared with
+ids, IPv4 and IPv6 addresses, hex values and numbers masked.
+
 ## Options
 
 | Flag | Default | What it does |
@@ -56,7 +60,7 @@ string is escaped, so a line containing `<script>` shows as text.
 | `--collapse-gap DUR` | `60s` | repeats further apart start a new entry |
 | `--incident-min N` / `--incident-window DUR` | `5` / `60s` | error/warn lines that make an incident |
 | `--max-entries N` | `50000` | later entries are cut by time; the summary says where and suggests `--from` |
-| `--year N` | this year | for syslog lines that have no year |
+| `--year N` | this year | for syslog lines that have no year; a file that runs from December into January moves to the next year |
 | `--stats` | | lines read, lines per second and collapse ratio on stderr |
 
 ## Throughput
