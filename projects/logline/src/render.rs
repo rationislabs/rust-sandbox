@@ -69,6 +69,10 @@ pub fn text(t: &Timeline, zone: &Zone, color: bool) -> String {
             );
         }
         out.push('\n');
+        // Continuation lines (a stack trace) of the first record, indented under it.
+        for more in e.samples.first().map_or("", String::as_str).lines().skip(1) {
+            let _ = writeln!(out, "    {more}");
+        }
     }
     if t.entries.is_empty() {
         out.push_str("no entries\n");

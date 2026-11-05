@@ -25,6 +25,23 @@ fn text(bytes: &[u8]) -> String {
 const FIXTURES: [&str; 2] = ["tests/fixtures/app.log", "tests/fixtures/db.log"];
 
 #[test]
+fn text_shows_continuation_lines() {
+    let dir = tmp("trace");
+    let log = dir.join("app.log");
+    fs::write(
+        &log,
+        "2026-10-28 10:15:00,001 [ERROR] boom\n  at foo\n  at bar\n2026-10-28 10:15:01,000 [INFO] ok\n",
+    )
+    .unwrap();
+    let out = logline(&[log.to_str().unwrap(), "--format", "text"]);
+    let stdout = text(&out.stdout);
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert!(lines[0].ends_with("boom"), "{stdout}");
+    assert_eq!(lines[1..3], ["      at foo", "      at bar"], "{stdout}");
+    assert!(lines[3].ends_with("ok"), "{stdout}");
+}
+
+#[test]
 fn text_fixture() {
     let out = logline(&[FIXTURES[0], FIXTURES[1], "--format", "text"]);
     assert!(out.status.success(), "{}", text(&out.stderr));
