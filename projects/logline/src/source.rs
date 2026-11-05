@@ -217,7 +217,17 @@ fn private_temp_dir() -> Result<PathBuf> {
         .context("cannot create a temp folder")
 }
 
-/// Files by path; `-` is stdin.
+/// A gzip stream, known by its magic bytes whatever the file is called, is decompressed as it
+/// is read.
+fn gunzip(mut reader: Box<dyn BufRead>) -> Result<Box<dyn BufRead>> {
+    if reader.fill_buf()?.starts_with(&[0x1f, 0x8b]) {
+        let gz = flate2::bufread::MultiGzDecoder::new(reader);
+        return Ok(Box::new(BufReader::new(gz)));
+    }
+    Ok(reader)
+}
+
+/// Files by path (gzipped or not); `-` is stdin.
 pub fn open_inputs(paths: &[PathBuf]) -> Result<(Vec<Input>, Option<TempDir>)> {
     let mut inputs = Vec::new();
     let mut tmp = None;
@@ -234,8 +244,9 @@ pub fn open_inputs(paths: &[PathBuf]) -> Result<(Vec<Input>, Option<TempDir>)> {
             |n| n.to_string_lossy().into_owned(),
         );
         inputs.push(Input {
-            name,
-            reader: Box::new(BufReader::new(file)),
+            name: name.strip_suffix(".gz").unwrap_or(&name).to_owned(),
+            reader: gunzip(Box::new(BufReader::new(file)))
+                .with_context(|| path.display().to_string())?,
             docker: false,
         });
     }
@@ -244,7 +255,8 @@ pub fn open_inputs(paths: &[PathBuf]) -> Result<(Vec<Input>, Option<TempDir>)> {
 
 /// Stdin as one source, or split per service when one of the first 10 non-blank lines looks
 /// like `docker compose logs -t` (compose can print a preamble such as "Attaching to …").
-pub fn open_reader_inputs(mut reader: Box<dyn BufRead>) -> Result<(Vec<Input>, Option<TempDir>)> {
+pub fn open_reader_inputs(reader: Box<dyn BufRead>) -> Result<(Vec<Input>, Option<TempDir>)> {
+    let mut reader = gunzip(reader)?;
     let mut head = Vec::new();
     let mut line = Vec::new();
     let mut docker = false;

@@ -42,6 +42,23 @@ fn text_shows_continuation_lines() {
 }
 
 #[test]
+fn gzip_input_is_read() {
+    let dir = tmp("gzip");
+    let log = dir.join("app.log.gz");
+    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    gz.write_all(b"2026-10-28 10:15:00,001 [ERROR] boom\n")
+        .unwrap();
+    fs::write(&log, gz.finish().unwrap()).unwrap();
+    let out = logline(&[log.to_str().unwrap(), "--format", "text"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert!(
+        text(&out.stdout).starts_with("2026-10-28 10:15:00.001 app.log ERROR boom"),
+        "{}",
+        text(&out.stdout)
+    );
+}
+
+#[test]
 fn text_fixture() {
     let out = logline(&[FIXTURES[0], FIXTURES[1], "--format", "text"]);
     assert!(out.status.success(), "{}", text(&out.stderr));
