@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, bail};
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
@@ -76,19 +76,52 @@ pub fn load(path: &Path) -> Result<TodoFile> {
 }
 
 /// Writes a sibling `.tmp` file, then renames it over `path`, so a crash never leaves half a file.
+/// A symlinked `path` is followed, so the link survives and its target gets the new list.
 pub fn save(path: &Path, file: &TodoFile) -> Result<()> {
-    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-        fs::create_dir_all(dir).with_context(|| format!("cannot create {}", dir.display()))?;
-    }
-    let mut tmp = path.as_os_str().to_owned();
-    tmp.push(".tmp");
-    let tmp = PathBuf::from(tmp);
+    let path = &target(path);
+    create_parent(path)?;
+    let tmp = sibling(path, ".tmp");
     let json = serde_json::to_string_pretty(file)? + "\n";
     let mut out = File::create(&tmp).with_context(|| format!("cannot write {}", tmp.display()))?;
     out.write_all(json.as_bytes())
         .and_then(|()| out.sync_all())
         .with_context(|| format!("cannot write {}", tmp.display()))?;
     fs::rename(&tmp, path).with_context(|| format!("cannot replace {}", path.display()))
+}
+
+/// Locks a sibling `.lock` file until the returned file is dropped, so two `todo` runs cannot
+/// both load the list, change it and overwrite each other. Hold it across load and save.
+pub fn lock(path: &Path) -> Result<File> {
+    let path = target(path);
+    create_parent(&path)?;
+    let name = sibling(&path, ".lock");
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&name)
+        .with_context(|| format!("cannot open {}", name.display()))?;
+    lock.lock()
+        .with_context(|| format!("cannot lock {}", name.display()))?;
+    Ok(lock)
+}
+
+// ponytail: a dangling symlink cannot be resolved and is replaced by a regular file on save.
+fn target(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn sibling(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(suffix);
+    PathBuf::from(name)
+}
+
+fn create_parent(path: &Path) -> Result<()> {
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        fs::create_dir_all(dir).with_context(|| format!("cannot create {}", dir.display()))?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -171,6 +204,26 @@ mod tests {
         file.add("a".into(), None, vec![]).unwrap();
         save(&path, &file).unwrap();
         assert_eq!(load(&path).unwrap(), file);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn save_writes_through_a_symlink() {
+        let dir = tmp("symlink");
+        let target = dir.join("real.json");
+        let link = dir.join("todo.json");
+        save(&target, &TodoFile::default()).unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let mut file = TodoFile::default();
+        file.add("a".into(), None, vec![]).unwrap();
+        save(&link, &file).unwrap();
+        assert!(
+            fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(load(&target).unwrap(), file);
     }
 
     #[test]

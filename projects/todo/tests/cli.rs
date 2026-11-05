@@ -175,3 +175,25 @@ fn closed_pipe_is_not_a_panic() {
     let out = child.wait_with_output().unwrap();
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
 }
+
+#[test]
+fn concurrent_adds_keep_every_task() {
+    let f = tmp("concurrent").join("todo.json");
+    let children: Vec<_> = (0..24)
+        .map(|i| {
+            Command::new(env!("CARGO_BIN_EXE_todo"))
+                .arg("--file")
+                .arg(&f)
+                .args(["add", &format!("task {i}")])
+                .env_remove("TODO_FILE")
+                .stdout(std::process::Stdio::null())
+                .spawn()
+                .unwrap()
+        })
+        .collect();
+    for mut child in children {
+        assert!(child.wait().unwrap().success());
+    }
+    let list = stdout(&todo(&f, &["list"]));
+    assert_eq!(list.lines().count(), 24, "{list}");
+}

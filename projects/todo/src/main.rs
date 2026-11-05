@@ -78,6 +78,11 @@ fn run(cli: Cli) -> Result<()> {
         std::env::var_os("XDG_DATA_HOME"),
         std::env::var_os("HOME"),
     )?;
+    // Commands that change the list hold the lock from load to save; `list` only reads.
+    let _lock = match cli.command {
+        Command::List { .. } => None,
+        _ => Some(model::lock(&path)?),
+    };
     let mut file = model::load(&path)?;
     match cli.command {
         Command::Add { text, due, tags } => {

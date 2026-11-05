@@ -36,6 +36,8 @@ $ todo list --all
 
 Saving writes `todo.json.tmp` next to the file and renames it over the old one, so a crash
 never leaves half a file. A file that does not parse is reported and never overwritten.
+Commands that change the list lock `todo.json.lock` from reading to saving, so two `todo` runs
+at once never lose a task. A symlinked `todo.json` stays a link; its target gets the new list.
 
 ## Run and test
 
