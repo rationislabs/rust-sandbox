@@ -6,6 +6,7 @@ use chrono::{DateTime, TimeDelta, Utc};
 use regex::Regex;
 use serde::Serialize;
 use std::collections::{BTreeSet, BinaryHeap, VecDeque};
+use std::net::Ipv6Addr;
 use std::sync::LazyLock;
 
 #[derive(Debug, Clone, Serialize)]
@@ -75,11 +76,32 @@ static MASKS: LazyLock<[(Regex, &str); 4]> = LazyLock::new(|| {
     ]
 });
 
+/// Runs of address characters with a colon in them; `mask_ipv6` decides which are addresses.
+static V6_CANDIDATE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"[0-9A-Za-z.%]*:[0-9A-Za-z:.%]*").expect("valid regex"));
+
 /// The message with ids, addresses, hex and numbers masked, so repeats compare equal.
 pub fn template(message: &str) -> String {
-    MASKS.iter().fold(message.to_string(), |out, (re, mask)| {
+    MASKS.iter().fold(mask_ipv6(message), |out, (re, mask)| {
         re.replace_all(&out, *mask).into_owned()
     })
+}
+
+/// IPv6 addresses (with an optional `%zone`), checked by the standard library's parser, so a
+/// time like `10:15:00`, a MAC address or `Foo::bar` is never taken for one.
+fn mask_ipv6(message: &str) -> String {
+    V6_CANDIDATE
+        .replace_all(message, |c: &regex::Captures| {
+            let token = &c[0];
+            let addr = token.trim_end_matches([':', '.']);
+            let host = addr.split_once('%').map_or(addr, |(host, _)| host);
+            if host.bytes().any(|b| b.is_ascii_hexdigit()) && host.parse::<Ipv6Addr>().is_ok() {
+                format!("<ip>{}", &token[addr.len()..])
+            } else {
+                token.to_string()
+            }
+        })
+        .into_owned()
 }
 
 /// Orders entries by (start, source) for the cap heap.
@@ -320,6 +342,22 @@ mod tests {
             template("addr 0x1f took 22 ms")
         );
         assert_ne!(template("conn refused"), template("conn accepted"));
+    }
+
+    #[test]
+    fn template_masks_ipv6() {
+        assert_eq!(
+            template("peer 2001:db8::1 reset"),
+            template("peer fe80::a:b%eth0 reset")
+        );
+        assert_eq!(template("from ::1 port 22"), "from <ip> port <n>");
+        assert_eq!(
+            template("[2001:0db8:0000:0000:0000:0000:0000:0001]:443 down"),
+            "[<ip>]:<n> down"
+        );
+        assert_eq!(template("at 10:15:00 ok"), "at <n>:<n>:<n> ok");
+        assert_eq!(template("mac aa:bb:cc:dd:ee:ff"), "mac aa:bb:cc:dd:ee:ff");
+        assert_eq!(template("see Foo::bar and ::"), "see Foo::bar and ::");
     }
 
     #[test]
