@@ -18,3 +18,5 @@ cargo test --workspace
 Start a new one: `cargo new projects/<name>`, then in its `Cargo.toml` set `edition`,
 `license` and `publish` to `.workspace = true` and add `[lints] workspace = true`. CI runs
 `cargo fmt --check`, `cargo clippy -D warnings` and `cargo test` for the whole workspace.
+
+Every project here was built with AI assistance.
