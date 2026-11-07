@@ -75,7 +75,6 @@ fn run(vault: &Path, tmp: &Path, args: &[&str]) -> Output {
         .unwrap()
 }
 
-#[allow(dead_code)] // used by the Task 5 tests
 fn run_raw(args: &[&str], envs: &[(&str, &Path)]) -> Output {
     command(envs, Path::new("/nonexistent-home"))
         .args(args)
@@ -212,4 +211,128 @@ fn clean_vault_exit_0() {
     assert!(text.contains("orphans (1, not an error)"), "{text}");
     assert!(text.contains("  y/dup.md has no incoming links"), "{text}");
     assert!(!text.contains("broken links"), "{text}");
+}
+
+#[test]
+fn json_shape() {
+    let (tmp, vault) = vault("json");
+    let out = run(&vault, &tmp, &["--json"]);
+    assert_eq!(out.status.code(), Some(1));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    let keys: Vec<_> = v.as_object().unwrap().keys().cloned().collect();
+    assert_eq!(
+        keys,
+        ["ambiguous", "broken", "dangling", "no_repo", "orphans"]
+    );
+    let broken = v["broken"].as_array().unwrap();
+    assert_eq!(broken.len(), 5);
+    assert!(broken.contains(&serde_json::json!(
+        {"path": "cases.md", "line": 14, "message": "[[ghost]] matches no note"}
+    )));
+    for key in ["dangling", "no_repo"] {
+        assert!(
+            v[key]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|f| f.get("line").is_none())
+        );
+    }
+}
+
+#[test]
+fn defaults_from_env() {
+    let (tmp, vault) = vault("defaults");
+    let home = tmp.join("home");
+    fs::create_dir_all(home.join("Development/pro/github/present")).unwrap();
+    fs::create_dir_all(home.join("Development/pro/gitlab/rationis_labs")).unwrap();
+    let out = run_raw(&[], &[("OBSIDIAN_VAULT", &vault), ("HOME", &home)]);
+    let text = stdout(&out);
+    let h = home.display();
+    assert!(
+        text.contains(&format!(
+            "github/missing has no repo at {h}/Development/pro/github/missing"
+        )),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!(
+            "gitlab/kept has no repo at {h}/Development/pro/gitlab/rationis_labs/kept"
+        )),
+        "{text}"
+    );
+}
+
+#[test]
+fn tilde_in_root() {
+    let (tmp, vault) = vault("tilde");
+    let home = tmp.join("home");
+    fs::create_dir_all(home.join("Development/pro/github/present")).unwrap();
+    let v = vault.to_str().unwrap();
+    let out = run_raw(
+        &[
+            v,
+            "--root",
+            "github=~/Development/pro/github",
+            "--exclude",
+            "gitlab",
+        ],
+        &[("HOME", &home)],
+    );
+    let want = format!(
+        "github/missing has no repo at {}/Development/pro/github/missing",
+        home.display()
+    );
+    assert!(stdout(&out).contains(&want), "{}", stdout(&out));
+}
+
+#[test]
+fn usage_errors_exit_2() {
+    let (tmp, vault) = vault("usage");
+    let out = run_raw(&[vault.to_str().unwrap(), "--root", "github"], &[]);
+    assert_eq!(out.status.code(), Some(2));
+    let nope = tmp.join("nope");
+    let out = run_raw(&[nope.to_str().unwrap(), "--root", "github=/x"], &[]);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(stderr(&out).starts_with("error: "), "{}", stderr(&out));
+}
+
+/// Kind, mtime, length, bytes or link text of every path under `dir`, never following links.
+fn snapshot(dir: &Path, out: &mut Vec<String>) {
+    let mut items: Vec<_> = fs::read_dir(dir)
+        .unwrap()
+        .map(|i| i.unwrap().path())
+        .collect();
+    items.sort();
+    for p in items {
+        let m = fs::symlink_metadata(&p).unwrap();
+        let what = if m.is_symlink() {
+            format!("link {}", fs::read_link(&p).unwrap().display())
+        } else if m.is_dir() {
+            "dir".to_owned()
+        } else {
+            format!("file {:?}", fs::read(&p).unwrap())
+        };
+        out.push(format!(
+            "{} {:?} {} {what}",
+            p.display(),
+            m.modified().unwrap(),
+            m.len()
+        ));
+        if m.is_dir() {
+            snapshot(&p, out);
+        }
+    }
+}
+
+#[test]
+fn read_only() {
+    let (tmp, vault) = vault("readonly");
+    let mut before = Vec::new();
+    snapshot(&tmp, &mut before);
+    run(&vault, &tmp, &[]);
+    run(&vault, &tmp, &["--json"]);
+    let mut after = Vec::new();
+    snapshot(&tmp, &mut after);
+    assert_eq!(before, after);
 }

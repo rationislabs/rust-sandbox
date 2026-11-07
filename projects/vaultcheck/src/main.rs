@@ -24,6 +24,9 @@ struct Cli {
     /// Report nothing under this vault folder and stat none of its symlinks; repeatable
     #[arg(long, value_name = "PREFIX")]
     exclude: Vec<String>,
+    /// Print the findings as JSON
+    #[arg(long)]
+    json: bool,
 }
 
 fn home() -> PathBuf {
@@ -90,7 +93,14 @@ fn main() -> ExitCode {
     for host in &report.unchecked_hosts {
         eprintln!("note: no --root for {host}, its folders are not checked");
     }
-    print!("{}", report.text());
+    if cli.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("a report always serialises")
+        );
+    } else {
+        print!("{}", report.text());
+    }
     if report.failed() {
         ExitCode::from(1)
     } else {
