@@ -12,10 +12,8 @@ pub use store::{Error, Store};
 #[doc(hidden)]
 pub fn stress_value(i: u64) -> Vec<u8> {
     let len = 1 + usize::try_from(i.wrapping_mul(2_654_435_761) % 2048).expect("below 2048");
-    format!("{i}.")
-        .into_bytes()
-        .into_iter()
-        .cycle()
-        .take(len)
-        .collect()
+    let unit = format!("{i}.");
+    let mut v = unit.repeat(len / unit.len() + 1).into_bytes();
+    v.truncate(len);
+    v
 }

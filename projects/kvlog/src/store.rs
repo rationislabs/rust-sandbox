@@ -59,6 +59,17 @@ pub struct Store {
     poisoned: bool,
 }
 
+/// `KVLOG_CRASH_AT=<name>` aborts the process at that point. Compiled only for tests.
+#[cfg(any(test, feature = "crash-points"))]
+fn crash_at(point: &str) -> bool {
+    std::env::var_os("KVLOG_CRASH_AT").is_some_and(|p| p == point)
+}
+
+#[cfg(not(any(test, feature = "crash-points")))]
+fn crash_at(_point: &str) -> bool {
+    false
+}
+
 fn io_at(path: &Path) -> impl FnOnce(io::Error) -> Error + '_ {
     move |source| Error::Io {
         path: path.to_owned(),
@@ -186,7 +197,17 @@ impl Store {
             return Err(Error::Poisoned);
         }
         let path = self.dir.join("wal");
-        if let Err(e) = self.wal.write_all(rec).and_then(|()| self.wal.sync_data()) {
+        if crash_at("half-record") {
+            let _ = self.wal.write_all(&rec[..rec.len() / 2]);
+            std::process::abort();
+        }
+        let written = self.wal.write_all(rec).and_then(|()| {
+            if crash_at("after-write") {
+                std::process::abort();
+            }
+            self.wal.sync_data()
+        });
+        if let Err(e) = written {
             if self
                 .wal
                 .set_len(self.wal_len)
@@ -255,10 +276,16 @@ impl Store {
         f.write_all(&bytes)
             .and_then(|()| f.sync_all())
             .map_err(io_at(&tmp))?;
+        if crash_at("after-snapshot-sync") {
+            std::process::abort();
+        }
         fs::rename(&tmp, &snap).map_err(io_at(&snap))?;
         File::open(&self.dir)
             .and_then(|d| d.sync_all())
             .map_err(io_at(&self.dir))?;
+        if crash_at("after-rename") {
+            std::process::abort();
+        }
         self.wal
             .set_len(0)
             .and_then(|()| self.wal.sync_all())
