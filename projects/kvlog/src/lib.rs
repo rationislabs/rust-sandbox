@@ -4,3 +4,6 @@
 #![allow(clippy::must_use_candidate, clippy::missing_errors_doc)]
 
 pub mod record;
+pub mod store;
+
+pub use store::{Error, Store};
