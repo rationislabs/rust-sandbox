@@ -31,7 +31,8 @@ order as [todo](../todo/)). The folder holds:
 
 - `wal`: the write-ahead log, one record per `set` or `rm`;
 - `snapshot`: every key at the last `compact` (same record format, sets only);
-- `snapshot.tmp`: only while a `compact` runs;
+- `snapshot.tmp`: while a `compact` runs, or left by a crash in one until the next `compact`
+  (opening never reads it);
 - `LOCK`: held exclusively while a store is open; a second process gets `the store is in use`.
 
 ## Record format
@@ -76,8 +77,9 @@ snapshot and a log that replays to the same keys.
 - **Kill loop.** A hidden `kvlog stress` sets `key0`, `key1`, ... and prints `ack <i>` after each
   sync. The test reads acks, sends SIGKILL after a random number, reopens the store and checks
   that every acknowledged key holds its value, with at most one more key (the write in flight).
-  200 rounds on one folder by default; every second round compacts every 25 writes so kills land
-  inside compaction. `KVLOG_CRASH_ROUNDS` raises the count (2,000 rounds pass in release mode),
+  200 rounds on one folder by default; every second round compacts every 25 writes and is killed
+  around the 25th ack, as compaction starts. Those kills land while it builds the snapshot in
+  memory, not in its file steps: those are covered by the crash points below. `KVLOG_CRASH_ROUNDS` raises the count (2,000 rounds pass in release mode),
   and `KVLOG_CRASH_SEED` replays a failing run.
 - **Crash points.** SIGKILL rarely lands between two particular lines, so the store has named
   abort points for the moments that matter: `half-record` (half a record written),
@@ -92,7 +94,9 @@ SIGKILL is not a power cut: the operating system's page cache survives it, so a 
 skipped `fsync` would still pass. The tests prove the write ordering and the recovery code, not
 the disk. Where `fsync` happens is checked by reading the code: after every appended record, after
 cutting a torn tail or a failed write, after creating the log, and three times in `compact`
-(snapshot, folder, emptied log).
+(snapshot, folder, emptied log). Not synced: the parent of a store folder kvlog creates itself,
+so after a power cut a brand-new store could be missing; a store that already exists is not
+affected.
 
 ### Checked by breaking it
 

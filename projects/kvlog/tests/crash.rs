@@ -202,7 +202,7 @@ fn acked_writes_survive_sigkill() {
         );
         let count = store.iter().count() as u64;
         assert!(
-            count == last + 1 || count == last + 2,
+            count == last + 1 || (count == last + 2 && extra.is_some()),
             "{ctx}: {count} keys, last ack {last}"
         );
         drop(store);
