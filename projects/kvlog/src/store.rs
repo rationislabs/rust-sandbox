@@ -70,6 +70,27 @@ fn crash_at(_point: &str) -> bool {
     false
 }
 
+#[cfg(test)]
+thread_local! {
+    static FAIL_AT: std::cell::Cell<&'static str> = const { std::cell::Cell::new("") };
+}
+
+/// Unit tests make the step named in `FAIL_AT` fail with an I/O error. Compiled only for them.
+#[cfg(test)]
+fn fail_at(point: &str) -> std::io::Result<()> {
+    if FAIL_AT.get() == point {
+        Err(std::io::Error::other(format!("injected at {point}")))
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(test))]
+#[allow(clippy::unnecessary_wraps)]
+fn fail_at(_point: &str) -> std::io::Result<()> {
+    Ok(())
+}
+
 fn io_at(path: &Path) -> impl FnOnce(io::Error) -> Error + '_ {
     move |source| Error::Io {
         path: path.to_owned(),
@@ -201,12 +222,14 @@ impl Store {
             let _ = self.wal.write_all(&rec[..rec.len() / 2]);
             std::process::abort();
         }
-        let written = self.wal.write_all(rec).and_then(|()| {
-            if crash_at("after-write") {
-                std::process::abort();
-            }
-            self.wal.sync_data()
-        });
+        let written = fail_at("append-write")
+            .and_then(|()| self.wal.write_all(rec))
+            .and_then(|()| {
+                if crash_at("after-write") {
+                    std::process::abort();
+                }
+                self.wal.sync_data()
+            });
         if let Err(e) = written {
             if self
                 .wal
@@ -286,12 +309,12 @@ impl Store {
         if crash_at("after-rename") {
             std::process::abort();
         }
-        self.wal
-            .set_len(0)
-            .and_then(|()| self.wal.sync_all())
-            .map_err(io_at(&wal))?;
+        self.wal.set_len(0).map_err(io_at(&wal))?;
+        // the snapshot holds every key, so the log is empty from here even if the sync fails
         self.wal_len = 0;
-        Ok(())
+        fail_at("compact-wal-sync")
+            .and_then(|()| self.wal.sync_all())
+            .map_err(io_at(&wal))
     }
 
     /// Bytes of an unfinished write cut off the end of the log when the store opened.
@@ -474,5 +497,21 @@ mod tests {
             Err(Error::TooLarge { what: "value", .. })
         ));
         assert_eq!(len(d.join("wal")), before);
+    }
+
+    #[test]
+    fn failed_wal_sync_in_compact_then_failed_write_leaves_wal_empty() {
+        let d = tmp("compact-sync");
+        let mut s = Store::open(&d).unwrap();
+        s.set(b"a", b"1").unwrap();
+        s.set(b"b", b"2").unwrap();
+        FAIL_AT.set("compact-wal-sync");
+        assert!(s.compact().is_err());
+        FAIL_AT.set("append-write");
+        assert!(s.set(b"c", b"3").is_err());
+        FAIL_AT.set("");
+        assert_eq!(len(d.join("wal")), 0);
+        drop(s);
+        assert_eq!(keys(&d), kv(&[("a", "1"), ("b", "2")]));
     }
 }

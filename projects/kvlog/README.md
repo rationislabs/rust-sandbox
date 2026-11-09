@@ -22,7 +22,7 @@ kvlog: no such key: city
 ```
 
 `get` and `rm` of an unknown key exit 1. `list` prints `key<TAB>value`, sorted, with `\`, tab,
-newline and CR escaped, so every entry is one line.
+newline and CR escaped, so every entry is one line; bytes that are not UTF-8 print as `\xNN`.
 
 ## Where the data lives
 

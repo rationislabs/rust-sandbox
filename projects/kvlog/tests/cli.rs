@@ -220,3 +220,26 @@ fn creates_missing_dir() {
 fn usage_error_exits_1() {
     assert_eq!(kv(&tmp("usage"), &["frobnicate"]).status.code(), Some(1));
 }
+
+#[test]
+fn stress_compact_every_zero_is_a_usage_error() {
+    let d = tmp("every0");
+    let out = kv(
+        &d,
+        &[
+            "stress",
+            "--start",
+            "0",
+            "--count",
+            "1",
+            "--compact-every",
+            "0",
+        ],
+    );
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("invalid value '0' for '--compact-every"),
+        "{}",
+        stderr(&out)
+    );
+}

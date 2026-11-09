@@ -3,6 +3,7 @@
 use clap::{Parser, Subcommand};
 use kvlog::{Store, stress_value};
 use std::ffi::OsString;
+use std::fmt::Write as _;
 use std::io::{self, ErrorKind, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -41,7 +42,7 @@ enum Cmd {
         start: u64,
         #[arg(long)]
         count: u64,
-        #[arg(long)]
+        #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
         compact_every: Option<u64>,
     },
 }
@@ -148,13 +149,24 @@ fn resolve_dir(
         .ok_or_else(|| "no place for the store: pass --dir <PATH>".to_owned())
 }
 
-/// One line per entry whatever the bytes hold: backslash, tab, LF and CR are escaped.
+/// One line per entry whatever the bytes hold: backslash, tab, LF and CR are escaped, and bytes
+/// that are not UTF-8 print as `\xNN`.
 fn escape(bytes: &[u8]) -> String {
-    String::from_utf8_lossy(bytes)
-        .replace('\\', "\\\\")
-        .replace('\t', "\\t")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
+    let mut out = String::with_capacity(bytes.len());
+    for chunk in bytes.utf8_chunks() {
+        out.push_str(
+            &chunk
+                .valid()
+                .replace('\\', "\\\\")
+                .replace('\t', "\\t")
+                .replace('\n', "\\n")
+                .replace('\r', "\\r"),
+        );
+        for b in chunk.invalid() {
+            let _ = write!(out, "\\x{b:02x}");
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -193,5 +205,8 @@ mod tests {
     fn escape_is_unambiguous() {
         assert_eq!(escape(b"a\tb\nc\\d\r"), "a\\tb\\nc\\\\d\\r");
         assert_eq!(escape("Wien ☕".as_bytes()), "Wien ☕");
+        assert_eq!(escape(b"a\xff\xfeb"), "a\\xff\\xfeb");
+        assert_ne!(escape(b"\xff"), escape(b"\xfe"));
+        assert_ne!(escape(b"\xff"), escape("\u{fffd}".as_bytes()));
     }
 }
