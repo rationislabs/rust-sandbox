@@ -1,0 +1,12 @@
+[package]
+name = "kvlog"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+crc32fast = "1.5"
