@@ -21,20 +21,24 @@ pub struct Link {
 
 static WIKI: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(!?)\[\[([^\[\]\n]+?)\]\]").unwrap());
 static MARKDOWN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"!?\[[^\]\n]*\]\(\s*(<[^>\n]*>|[^)\s]+)(?:\s+"[^"\n]*")?\s*\)"#).unwrap()
+    Regex::new(r#"!?\[[^\]\n]*\]\(\s*(<[^>\n]*>|(?:[^()\s]|\([^()\s]*\))+)(?:\s+"[^"\n]*")?\s*\)"#)
+        .unwrap()
 });
 static SCHEME: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[A-Za-z][A-Za-z0-9+.-]*:").unwrap());
 static HEADING: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^ {0,3}#{1,6}(?:\s+(.*?))?(?:\s+#+)?\s*$").unwrap());
+static SETEXT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^ {0,3}(?:=+|-+)[ \t]*$").unwrap());
+static QUOTE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[ \t]*(?:>[ \t]?)+").unwrap());
 static BLOCK: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?:^|\s)\^([A-Za-z0-9-]+)\s*$").unwrap());
 
-/// Lines with fenced code blanked (line count kept).
+/// Lines with blockquote markers (callouts) removed and fenced code blanked (line count kept).
 fn unfenced(text: &str) -> Vec<&str> {
     let mut open: Option<(char, usize)> = None;
     text.lines()
         .map(|line| {
+            let line = QUOTE.find(line).map_or(line, |m| &line[m.end()..]);
             let trimmed = line.trim_start();
             if let Some((ch, n)) = open {
                 let rest = trimmed.trim_end();
@@ -45,7 +49,8 @@ fn unfenced(text: &str) -> Vec<&str> {
             }
             for ch in ['`', '~'] {
                 let n = trimmed.chars().take_while(|&c| c == ch).count();
-                if n >= 3 {
+                // a backtick in the rest of the line makes it inline code, not a fence
+                if n >= 3 && !(ch == '`' && trimmed[n..].contains('`')) {
                     open = Some((ch, n));
                     return "";
                 }
@@ -195,13 +200,17 @@ impl Anchors {
 pub fn anchors(text: &str) -> Anchors {
     let mut headings = HashSet::new();
     let mut blocks = HashSet::new();
+    let mut prev = "";
     for line in unfenced(text) {
         if let Some(c) = HEADING.captures(line) {
             headings.insert(normalise_heading(c.get(1).map_or("", |m| m.as_str())));
+        } else if SETEXT.is_match(line) && !prev.trim().is_empty() && !HEADING.is_match(prev) {
+            headings.insert(normalise_heading(prev));
         }
         if let Some(c) = BLOCK.captures(line) {
             blocks.insert(c[1].to_lowercase());
         }
+        prev = line;
     }
     Anchors { headings, blocks }
 }
@@ -306,5 +315,32 @@ mod tests {
                 && !a.has_heading("not a heading")
         );
         assert!(a.has_block("BLK1") && !a.has_block("hidden"));
+    }
+
+    #[test]
+    fn callouts_hold_code_and_headings() {
+        let t = |s: &str| links(s).into_iter().map(|l| l.target).collect::<Vec<_>>();
+        assert_eq!(
+            t("> [!example]\n> ```python\n> df[[\"open\", \"high\"]]\n> ```\n> [[c]]\n"),
+            ["c"]
+        );
+        assert!(anchors("> [!note]\n> ## In Callout\n").has_heading("In Callout"));
+    }
+
+    #[test]
+    fn inline_triple_backticks_are_not_a_fence() {
+        let t = |s: &str| links(s).into_iter().map(|l| l.target).collect::<Vec<_>>();
+        assert_eq!(t("```cargo test``` runs it\n[[gone]]\n"), ["gone"]);
+    }
+
+    #[test]
+    fn setext_headings() {
+        let a = anchors("Setext Head\n===\n\nSub head\n---\n\n---\n");
+        assert!(a.has_heading("Setext Head") && a.has_heading("Sub head"));
+    }
+
+    #[test]
+    fn balanced_parens_in_markdown_link() {
+        assert_eq!(links("[md](paren_(1).md)")[0].target, "paren_(1).md");
     }
 }
