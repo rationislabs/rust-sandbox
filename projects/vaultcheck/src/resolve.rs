@@ -27,6 +27,18 @@ fn join(dir: &str, rel: &str) -> Option<String> {
     Some(parts.join("/"))
 }
 
+/// Whether a link `target` written in `from` could point into the vault folder `folder`.
+pub fn under(folder: &str, from: &str, target: &str) -> bool {
+    let folder = folder.to_lowercase();
+    let t = target.to_lowercase();
+    let mut paths = vec![t.trim_start_matches('/').to_owned()];
+    paths.extend(join(&self::folder(from), &t));
+    paths.iter().any(|p| {
+        p.match_indices('/')
+            .any(|(i, _)| folder == p[..i] || folder.ends_with(&format!("/{}", &p[..i])))
+    })
+}
+
 fn folder(path: &str) -> String {
     path.rsplit_once('/').map_or("", |(d, _)| d).to_lowercase()
 }
@@ -74,6 +86,11 @@ impl Index {
             return found(Some(abs));
         }
         if markdown && let Some(p) = here.as_deref().and_then(|k| self.with_key(k)) {
+            return Resolved::One(p.to_owned());
+        }
+        if t.contains('/')
+            && let Some(p) = self.with_key(&t)
+        {
             return Resolved::One(p.to_owned());
         }
         let suffix = format!("/{t}");
@@ -187,10 +204,13 @@ mod tests {
 
     #[test]
     fn ambiguous_path() {
+        // an exact vault path wins over notes it is also a suffix of
+        assert_eq!(r("Home.md", "specs/x", false), one("specs/x.md"));
+        assert_eq!(r("Home.md", "/specs/x", false), one("specs/x.md"));
         assert_eq!(
-            r("Home.md", "specs/x", false),
+            Index::new(["a/specs/x.md", "g/specs/x.md"]).resolve("Home.md", "specs/x", false),
             Resolved::Ambiguous {
-                picked: "specs/x.md".into(),
+                picked: "a/specs/x.md".into(),
                 others: vec!["g/specs/x.md".into()]
             }
         );
@@ -209,5 +229,17 @@ mod tests {
     #[test]
     fn self_link() {
         assert_eq!(r("beta.md", "", false), one("beta.md"));
+    }
+
+    #[test]
+    fn under_folder() {
+        assert!(under("locked", "Home.md", "locked/x"));
+        assert!(under("b/locked", "Home.md", "locked/x"));
+        assert!(under("b/locked", "Home.md", "/b/locked/deep/x.md"));
+        assert!(under("a/locked", "a/n.md", "../a/locked/x.md"));
+        assert!(under("a/locked", "a/n.md", "locked/x.md"));
+        assert!(!under("locked", "Home.md", "x"));
+        assert!(!under("locked", "Home.md", "notlocked/x"));
+        assert!(!under("b/locked", "Home.md", "ocked/x"));
     }
 }

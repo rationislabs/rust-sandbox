@@ -101,6 +101,42 @@ fn without_inline_code(line: &str) -> String {
     out
 }
 
+/// `%% %%` and `<!-- -->` comments blanked, across lines; delimiters inside inline code ignored.
+fn uncommented(lines: Vec<&str>) -> Vec<String> {
+    let mut close: Option<&str> = None;
+    lines
+        .into_iter()
+        .map(|line| {
+            let scan = without_inline_code(line); // same byte offsets as `line`
+            let mut out = line.to_owned();
+            let mut pos = 0;
+            loop {
+                let start = pos;
+                if let Some(end) = close {
+                    let Some(i) = scan[pos..].find(end) else {
+                        out.replace_range(start.., &" ".repeat(line.len() - start));
+                        break;
+                    };
+                    pos += i + end.len();
+                    out.replace_range(start..pos, &" ".repeat(pos - start));
+                    close = None;
+                    continue;
+                }
+                let next = [("%%", "%%"), ("<!--", "-->")]
+                    .into_iter()
+                    .filter_map(|(open, end)| scan[pos..].find(open).map(|i| (i, open, end)))
+                    .min_by_key(|&(i, ..)| i);
+                let Some((i, open, end)) = next else { break };
+                pos += i;
+                out.replace_range(pos..pos + open.len(), &" ".repeat(open.len()));
+                pos += open.len();
+                close = Some(end);
+            }
+            out
+        })
+        .collect()
+}
+
 fn fragment(s: &str) -> Option<Fragment> {
     if let Some(id) = s.strip_prefix('^') {
         return (!id.is_empty()).then(|| Fragment::Block(id.to_owned()));
@@ -135,8 +171,8 @@ fn percent_decode(s: &str) -> String {
 
 pub fn links(text: &str) -> Vec<Link> {
     let mut out = Vec::new();
-    for (n, line) in unfenced(text).into_iter().enumerate() {
-        let line = without_inline_code(line);
+    for (n, line) in uncommented(unfenced(text)).into_iter().enumerate() {
+        let line = without_inline_code(&line);
         let mut found: Vec<(usize, Link)> = Vec::new();
         for c in WIKI.captures_iter(&line) {
             let whole = c.get(0).unwrap();
@@ -200,8 +236,9 @@ impl Anchors {
 pub fn anchors(text: &str) -> Anchors {
     let mut headings = HashSet::new();
     let mut blocks = HashSet::new();
+    let lines = uncommented(unfenced(text));
     let mut prev = "";
-    for line in unfenced(text) {
+    for line in &lines {
         if let Some(c) = HEADING.captures(line) {
             headings.insert(normalise_heading(c.get(1).map_or("", |m| m.as_str())));
         } else if SETEXT.is_match(line) && !prev.trim().is_empty() && !HEADING.is_match(prev) {
@@ -342,5 +379,23 @@ mod tests {
     #[test]
     fn balanced_parens_in_markdown_link() {
         assert_eq!(links("[md](paren_(1).md)")[0].target, "paren_(1).md");
+    }
+
+    #[test]
+    fn comments_ignored() {
+        let t = |s: &str| links(s).into_iter().map(|l| l.target).collect::<Vec<_>>();
+        assert_eq!(
+            t(
+                "[[a]] %%[[b]]%% [[c]] <!-- [[d]] --> [[e]]\n%% open\n[[f]]\nclose %% [[g]]\n<!--\n[[h]]\n-->[[i]]\n`%%` [[j]]\n"
+            ),
+            ["a", "c", "e", "g", "i", "j"]
+        );
+        let lines: Vec<_> = links("%%\n[[x]]\n%%\n[[y]]")
+            .iter()
+            .map(|l| l.line)
+            .collect();
+        assert_eq!(lines, [4]);
+        let a = anchors("%%\n# Hidden\n%%\n# Shown `%%`\n");
+        assert!(!a.has_heading("Hidden") && a.has_heading("Shown"));
     }
 }

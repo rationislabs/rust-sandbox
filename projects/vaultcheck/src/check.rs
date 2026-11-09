@@ -1,7 +1,7 @@
 //! The four checks over a scanned vault, and the report.
 
 use crate::parse::{Fragment, anchors, links};
-use crate::resolve::{Index, Resolved};
+use crate::resolve::{Index, Resolved, under};
 use crate::scan::{Entry, Kind};
 use serde::Serialize;
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -58,7 +58,9 @@ fn finding(path: &str, line: Option<usize>, message: String) -> Finding {
 
 pub fn check(entries: &[Entry], opts: &Options) -> Report {
     let mut report = Report::default();
-    let index = Index::new(entries.iter().map(|e| e.path.as_str()));
+    let (locked, readable): (Vec<&Entry>, Vec<&Entry>) =
+        entries.iter().partition(|e| e.kind == Kind::Unreadable);
+    let index = Index::new(readable.iter().map(|e| e.path.as_str()));
     let kinds: HashMap<&str, &Kind> = entries.iter().map(|e| (e.path.as_str(), &e.kind)).collect();
     let mut linked: HashSet<String> = HashSet::new();
 
@@ -71,8 +73,14 @@ pub fn check(entries: &[Entry], opts: &Options) -> Report {
         for link in links(text) {
             report.links += 1;
             let target = match index.resolve(&entry.path, &link.target, link.markdown) {
+                Resolved::None if skip => continue,
                 Resolved::None => {
-                    if !skip {
+                    if locked
+                        .iter()
+                        .any(|d| under(&d.path, &entry.path, &link.target))
+                    {
+                        report.unverified += 1;
+                    } else {
                         let msg = format!("{} matches no note", link.raw);
                         report
                             .broken
@@ -234,5 +242,40 @@ impl Report {
             self.notes, self.links, self.unverified
         );
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn note(path: &str, text: &str) -> Entry {
+        Entry {
+            path: path.into(),
+            kind: Kind::Note(Some(text.into())),
+        }
+    }
+
+    #[test]
+    fn links_into_unreadable_folder_are_unverified() {
+        let entries = [
+            Entry {
+                path: "locked".into(),
+                kind: Kind::Unreadable,
+            },
+            note("Home.md", "[[locked/x]] [[locked]] [[gone]]"),
+        ];
+        let opts = Options {
+            vault: PathBuf::new(),
+            roots: vec![],
+            exclude: vec![],
+        };
+        let report = check(&entries, &opts);
+        let broken: Vec<_> = report.broken.iter().map(|f| f.message.as_str()).collect();
+        assert_eq!(
+            broken,
+            ["[[locked]] matches no note", "[[gone]] matches no note"]
+        );
+        assert_eq!(report.unverified, 1);
     }
 }

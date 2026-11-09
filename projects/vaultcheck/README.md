@@ -16,8 +16,8 @@ vaultcheck --json                       # machine-readable findings
 
 1. **Broken links**: wiki links (`[[note]]`, `[[note|alias]]`, `[[note#Heading]]`,
    `[[note#^block]]`, embeds `![[...]]`) and local Markdown links (`[text](path.md)`). A
-   heading or block must exist in the target note. Links in code blocks and inline code are
-   ignored.
+   heading or block must exist in the target note. Links in code blocks, inline code and
+   comments (`%% %%`, `<!-- -->`) are ignored.
 2. **Orphans**: notes no other note links to. `Home.md` and `inbox/` never count.
 3. **Folders without a repo**: `vault/<host>/<repo>/` with no `<repo>` folder under the
    `--root` given for that host. Without `--root`, the roots are `~/Development/pro/github`
@@ -25,12 +25,14 @@ vaultcheck --json                       # machine-readable findings
 4. **Dangling symlinks**: symlinks in the vault whose target is gone.
 
 Links resolve the way Obsidian resolves them: case-insensitive, `.md` optional, `./` and `../`
-relative to the note, partial paths (`[[deep/gamma]]` finds `notes/deep/gamma.md`), and a
-name that matches several files opens the one in the note's own folder, else the shortest path.
+relative to the note, partial paths (`[[deep/gamma]]` finds `notes/deep/gamma.md`), an exact
+vault path wins over partial matches, and a name that matches several files opens the one in
+the note's own folder, else the shortest path.
 
 Broken links, folders without a repo and dangling symlinks exit 1. Ambiguous links, orphans and
 heading links into notes that cannot be read (symlinks, non-UTF-8) are listed, never fail the
-run. Usage errors and an unreadable vault exit 2.
+run. A link whose path points into a folder that cannot be read counts as unverified, not
+broken. Usage errors and an unreadable vault exit 2.
 
 `--exclude` is a report filter, not a blind spot: notes under it are still read, so links into
 them resolve and their links still count against orphans.

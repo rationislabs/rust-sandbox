@@ -10,6 +10,8 @@ pub enum Kind {
     Note(Option<String>),
     File,
     Symlink,
+    /// A folder that could not be listed.
+    Unreadable,
 }
 
 #[derive(Debug, Clone)]
@@ -45,7 +47,13 @@ fn walk(root: &Path, prefix: &str, dir: fs::ReadDir, out: &mut Vec<Entry>) {
         } else if ft.is_dir() {
             match fs::read_dir(root.join(&path)) {
                 Ok(sub) => walk(root, &format!("{path}/"), sub, out),
-                Err(e) => eprintln!("warning: {path}: {e}, skipped"),
+                Err(e) => {
+                    eprintln!("warning: {path}: {e}, skipped");
+                    out.push(Entry {
+                        path,
+                        kind: Kind::Unreadable,
+                    });
+                }
             }
         } else if ft.is_file() {
             let kind = if Path::new(&name)
@@ -157,9 +165,13 @@ mod tests {
         let got = scan(&root);
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
         if !readable {
-            let got = got.unwrap();
-            assert_eq!(got.len(), 1);
-            assert_eq!(got[0].path, "ok.md");
+            assert_eq!(
+                summary(&got.unwrap()),
+                [
+                    ("locked".to_owned(), Kind::Unreadable),
+                    ("ok.md".to_owned(), Kind::Note(Some("ok".into())))
+                ]
+            );
         }
     }
 
